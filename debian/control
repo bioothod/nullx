@@ -1,0 +1,31 @@
+Source: nullx
+Section: net
+Priority: optional
+Maintainer: Evgeniy Polyakov <zbr@ioremap.net>
+Build-Depends:
+ cmake (>= 2.6),
+ debhelper (>= 7.0.50~),
+ cdbs,
+ libboost-dev,
+ libboost-system-dev,
+ libboost-program-options-dev,
+ libboost-filesystem-dev,
+ elliptics-dev,
+ elliptics-client,
+ libcrypto++-dev
+ libmsgpack-dev,
+ libswarm3-dev,
+ libthevoid3-dev
+Standards-Version: 3.8.0
+Homepage: http://www.reverbrain.com/
+
+Package: nullx
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Nullx is a web frontend server for Nulla Elliptics steaming engine.
+ It implements file upload, metadata generation, user authentication and other frontend features.
+
+Package: nullx-dbg
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Debug symbols for nullx - web frontend server for Nulla Elliptics steaming engine.

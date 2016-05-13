@@ -1,0 +1,13 @@
+#!/usr/bin/make -f
+
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/cmake.mk
+
+DEB_CMAKE_EXTRA_FLAGS := -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+DEB_DH_STRIP_ARGS := --dbg-package=nullx-dbg
+DEB_COMPRESS_EXCLUDE := .conf
+#DEB_MAKE_CHECK_TARGET=test
+
+DEB_BUILD_PARALLEL = yes
+DEB_PARALLEL_JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)

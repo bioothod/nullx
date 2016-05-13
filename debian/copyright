@@ -1,0 +1,8 @@
+Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: nullx
+Upstream-Contact: Evgeniy Polyakov <zbr@ioremap.net>
+Source: https://github.com/bioothod/nullx
+
+Files: *
+Copyright: (C) 2015+ Evgeniy Polyakov <zbr@ioremap.net>
+License: Apache 2.0

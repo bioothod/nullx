@@ -1,0 +1,49 @@
+{
+    "endpoints": [
+        "0.0.0.0:8080"
+    ],
+    "backlog": 512,
+    "threads": 10,
+    "buffer_size": 65536,
+	"logger": {
+        "level": "notice",
+        "frontends": [
+            {
+                "formatter": {
+                    "type": "string",
+                    "pattern": "%(timestamp)s %(request_id)s/%(lwp)s/%(pid)s %(severity)s: %(message)s, %(...L)s"
+                },
+                "sink": {
+                    "type": "files",
+                    "path": "/dev/stdout",
+                    "path1": "nulla.log",
+                    "autoflush": true,
+                    "rotation": { "move": 0 }
+                }
+            }
+        ]
+    },
+    "daemon": {
+        "fork": false,
+        "uid": 1000
+    },
+    "monitor-port": 21212,
+    "request_header": "X-Request",
+    "trace_header": "X-Trace",
+    "log_request_headers": ["User-Agent", "Authorization", "Cookie"],
+    "application": {
+	"remotes": [
+		"localhost:1026:2"
+	],
+	"buckets": [
+		"b1",
+		"b2",
+		"b3",
+		"b4"
+	],
+	"metadata_groups": [1,2],
+	"domain": "reverbrain.com",
+	"meta_bucket": "b1",
+	"static_root": "/home/zbr/awork/web/broadcast/frontend"
+    }
+}
