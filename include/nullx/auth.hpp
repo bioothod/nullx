@@ -8,6 +8,7 @@
 #include <ebucket/bucket_processor.hpp>
 
 #include <greylock/io.hpp>
+#include <swarm/url_query.hpp>
 
 namespace ioremap { namespace nullx {
 
@@ -57,7 +58,7 @@ public:
 		async.wait();
 		if (async.error()) {
 			return elliptics::create_error(async.error().code(),
-					"auth: could write new user, bucket: %s, username: %s, data size: %ld, error: %s",
+					"auth: could not write new user data, bucket: %s, username: %s, data size: %ld, error: %s",
 					m_meta_bucket.c_str(), username.c_str(), data.size(), async.error().message().c_str());
 		}
 
@@ -113,16 +114,18 @@ public:
 		return elliptics::error_info();
 	}
 
-	elliptics::error_info parse_request(const boost::asio::const_buffer &buffer, mailbox_t &mbox) {
+	elliptics::error_info parse_request(const thevoid::http_request &req, const boost::asio::const_buffer &buffer, mailbox_t &mbox) {
+		(void) req;
 		// this is needed to put ending zero-byte, otherwise rapidjson parser will explode
 		std::string data(const_cast<char *>(boost::asio::buffer_cast<const char*>(buffer)), boost::asio::buffer_size(buffer));
 
+#if 0
 		rapidjson::Document doc;
 		doc.Parse<0>(data.c_str());
 
 		if (doc.HasParseError()) {
-			return elliptics::create_error(-EINVAL, "could not parse document: %s, error offset: %zd", 
-					doc.GetParseError(), doc.GetErrorOffset());
+			return elliptics::create_error(-EINVAL, "could not parse document: %s, error offset: %zd, data: %s", 
+					doc.GetParseError(), doc.GetErrorOffset(), data.c_str());
 		}
 
 		if (!doc.IsObject()) {
@@ -135,9 +138,17 @@ public:
 		if (!username || !secret) {
 			return elliptics::create_error(-EINVAL, "username and secret must be specified");
 		}
+#endif
 
-		mbox.username.assign(username);
-		mbox.secret.assign(username);
+		swarm::url_query q(data);
+		auto username = q.item_value("username");
+		auto password = q.item_value("password");
+		if (!username || !password) {
+			return elliptics::create_error(-EINVAL, "username and password must be specified");
+		}
+
+		mbox.username.assign(*username);
+		mbox.secret.assign(*password);
 		return elliptics::error_info();
 	}
 
@@ -195,7 +206,7 @@ public:
 		auth a(*this->server()->bucket_processor(), this->server()->meta_bucket(), this->server()->domain());
 		mailbox_t mbox;
 
-		auto err = a.parse_request(buffer, mbox);
+		auto err = a.parse_request(req, buffer, mbox);
 		if (err) {
 			NLOG_ERROR("login: failed to parse request: %s [%d]", err.message().c_str(), err.code());
 			this->send_reply(swarm::http_response::bad_request);
@@ -232,6 +243,7 @@ public:
 			std::string data = a.serialize_reply(mbox, code, message);
 
 			thevoid::http_response reply;
+			reply.headers().set("Access-Control-Allow-Origin", "*");
 			reply.headers().set_content_type("text/json; charset=utf-8");
 			reply.set_code(status);
 			this->send_reply(std::move(reply), std::move(data));
@@ -243,6 +255,7 @@ public:
 		thevoid::http_response reply;
 		reply.set_code(swarm::http_response::ok);
 		reply.headers().set_content_type("text/json; charset=utf-8");
+		reply.headers().set("Access-Control-Allow-Origin", "*");
 		reply.headers().set("Set-Cookie", a.cookie(mbox));
 		this->send_reply(std::move(reply), std::move(data));
 		return;
