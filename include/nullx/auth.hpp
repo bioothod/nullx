@@ -178,13 +178,20 @@ public:
 
 	std::string cookie(const mailbox_t &mbox) const {
 		char buf[4096];
-		size_t sz = snprintf(buf, sizeof(buf), "%s=%s; Max-Age=%ld; Path=/; Domain=.%s",
-				cookie_prefix.c_str(), mbox.cookie.c_str(), mbox.max_age, m_domain.c_str());
+		std::string domain;
+
+		if (!m_domain.empty()) {
+			domain = "; Path=/; Domain=." + m_domain;
+		}
+
+		size_t sz = snprintf(buf, sizeof(buf), "%s=%s; Max-Age=%ld%s",
+				cookie_prefix.c_str(), mbox.cookie.c_str(), mbox.max_age,
+				domain.c_str());
 
 		return std::string(buf, sz);
 	}
 
-	void generate_temporal_bits(mailbox_t mbox) const {
+	void generate_temporal_bits(mailbox_t &mbox) const {
 		std::string data = mbox.username + mbox.secret + crypto::get_random_string() + std::to_string(rand() + time(NULL));
 		mbox.cookie = crypto::calc_hash<CryptoPP::Weak::MD5>(data.data(), data.size());
 		mbox.max_age = 60;
@@ -245,18 +252,25 @@ public:
 			thevoid::http_response reply;
 			reply.headers().set("Access-Control-Allow-Origin", "*");
 			reply.headers().set_content_type("text/json; charset=utf-8");
+			reply.headers().set_content_length(data.size());
 			reply.set_code(status);
 			this->send_reply(std::move(reply), std::move(data));
 			return;
 		}
 
 		std::string data = a.serialize_reply(mbox, 0, "");
+		NLOG_NOTICE("auth: url: %s, request: %.*s, cookie: %s, reply: %s",
+				req.url().to_human_readable().c_str(),
+				(int)boost::asio::buffer_size(buffer), boost::asio::buffer_cast<const char*>(buffer),
+				a.cookie(mbox).c_str(),
+				data.c_str());
 
 		thevoid::http_response reply;
 		reply.set_code(swarm::http_response::ok);
 		reply.headers().set_content_type("text/json; charset=utf-8");
 		reply.headers().set("Access-Control-Allow-Origin", "*");
 		reply.headers().set("Set-Cookie", a.cookie(mbox));
+		reply.headers().set_content_length(data.size());
 		this->send_reply(std::move(reply), std::move(data));
 		return;
 	}
