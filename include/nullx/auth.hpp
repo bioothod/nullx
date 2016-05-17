@@ -184,9 +184,14 @@ public:
 			domain = "; Path=/; Domain=." + m_domain;
 		}
 
-		size_t sz = snprintf(buf, sizeof(buf), "%s=%s; Max-Age=%ld%s",
-				cookie_prefix.c_str(), mbox.cookie.c_str(), mbox.max_age,
-				domain.c_str());
+		char ts[256];
+		struct tm tm;
+		time_t tt = std::chrono::system_clock::to_time_t(mbox.expires_at);
+		gmtime_r(&tt, &tm); // cookie expiration string must be in GMT timezone
+		strftime(ts, sizeof(ts), "%a, %d %b %Y %T GMT", &tm);
+
+		size_t sz = snprintf(buf, sizeof(buf), "%s=%s; Expires=%s%s",
+				cookie_prefix.c_str(), mbox.cookie.c_str(), ts, domain.c_str());
 
 		return std::string(buf, sz);
 	}
@@ -194,7 +199,7 @@ public:
 	void generate_temporal_bits(mailbox_t &mbox) const {
 		std::string data = mbox.username + mbox.secret + crypto::get_random_string() + std::to_string(rand() + time(NULL));
 		mbox.cookie = crypto::calc_hash<CryptoPP::Weak::MD5>(data.data(), data.size());
-		mbox.max_age = 60;
+		mbox.max_age = 600;
 		mbox.expires_at = std::chrono::system_clock::now() + std::chrono::seconds(mbox.max_age);
 	}
 
