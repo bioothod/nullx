@@ -20,6 +20,7 @@ public:
 			thevoid::http_response reply;
 			reply.headers().set("Access-Control-Allow-Origin", "*");
 			reply.set_code(swarm::http_response::forbidden);
+			reply.headers().set_content_length(0);
 			this->send_reply(std::move(reply));
 			return;
 		}
@@ -70,9 +71,12 @@ private:
 	elliptics::error_info update_indexes(const std::string &bucket, const std::string &filename) {
 		uint64_t tsec, tnsec;
 		timestamp(std::chrono::system_clock::now(), &tsec, &tnsec);
-		std::ostringstream time_ss;
-		time_ss << std::put_time(std::localtime((time_t *)&tsec), "%Y-%m-%d");
-		std::string time_index = time_ss.str();
+
+		struct tm tm;
+		localtime_r((time_t *)&tsec, &tm);
+		char time_str[128];
+		strftime(time_str, sizeof(time_str), "%Y-%m-%d", &tm);
+		std::string time_index(time_str);
 
 		std::vector<std::string> indexes;
 		indexes.push_back(filename);
