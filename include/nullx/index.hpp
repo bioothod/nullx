@@ -12,16 +12,15 @@ template <typename Server>
 class on_upload_update_index : public on_upload_base<Server, on_upload_update_index<Server>>
 {
 public:
-	on_upload_update_index() : m_auth(*this->server()->bucket_processor(), this->server()->meta_bucket(), this->server()->domain()) {}
+	on_upload_update_index() {}
 
 	virtual void on_headers(thevoid::http_request &&req) {
 		if (!this->server()->check_cookie(req, m_mbox)) {
 			NLOG_ERROR("upload: url: %s: invalid cookie, redirecting to login page", req.url().to_human_readable().c_str());
-			std::string data;
 			thevoid::http_response reply;
-			reply.set_code(swarm::http_response::moved_temporarily);
-			reply.headers().set("Location", "http://" + this->server()->domain() + "/login");
-			this->send_reply(std::move(reply), std::move(data));
+			reply.headers().set("Access-Control-Allow-Origin", "*");
+			reply.set_code(swarm::http_response::forbidden);
+			this->send_reply(std::move(reply));
 			return;
 		}
 
@@ -60,7 +59,6 @@ public:
 
 private:
 	mailbox_t m_mbox;
-	auth m_auth;
 
 	void timestamp(const std::chrono::time_point<std::chrono::system_clock> &time, uint64_t *tsec, uint64_t *tnsec) const {
 		auto sec = std::chrono::time_point_cast<std::chrono::seconds>(time);
