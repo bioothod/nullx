@@ -3,6 +3,7 @@
 #include "nullx/index.hpp"
 #include "nullx/log.hpp"
 #include "nullx/mime.hpp"
+#include "nullx/upload.hpp"
 
 #include <ebucket/bucket_processor.hpp>
 #include <ribosome/expiration.hpp>
@@ -31,18 +32,22 @@ public:
 		if (!elliptics_init(config))
 			return false;
 
-		on<nullx::on_upload_update_index<nullx_server>>(
-			options::prefix_match("/upload"),
-			options::methods("POST", "PUT")
-		);
-
 		on<nullx::on_login<nullx_server>>(
 			options::prefix_match("/login"),
 			options::methods("POST", "PUT")
 		);
-
 		on<nullx::on_signup<nullx_server>>(
 			options::prefix_match("/signup"),
+			options::methods("POST", "PUT")
+		);
+
+
+		on<nullx::on_upload<nullx_server>>(
+			options::prefix_match("/upload"),
+			options::methods("POST", "PUT")
+		);
+		on<nullx::on_index<nullx_server>>(
+			options::prefix_match("/index"),
 			options::methods("POST", "PUT")
 		);
 
