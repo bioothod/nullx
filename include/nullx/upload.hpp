@@ -3,6 +3,7 @@
 #include "nullx/asio.hpp"
 #include "nullx/jsonvalue.hpp"
 #include "nullx/log.hpp"
+#include "nullx/url.hpp"
 
 #include <swarm/url.hpp>
 
@@ -92,7 +93,7 @@ public:
 		try {
 			const auto &query = this->request().url().query();
 			m_orig_offset = m_offset = query.item_value("offset", 0llu);
-			m_key = key(req);
+			m_key = url::key(req, false);
 		} catch (const std::exception &e) {
 			NLOG_ERROR("buffered-write: url: %s: invalid offset parameter: %s",
 					req.url().to_human_readable().c_str(), e.what());
@@ -182,13 +183,6 @@ protected:
 	uint64_t m_size;
 
 	ribosome::timer m_timer;
-
-	std::string key(const swarm::http_request &req) {
-		const auto &path = req.url().path_components();
-
-		size_t prefix_size = 1 + path[0].size() + 1;
-		return req.url().path().substr(prefix_size);
-	}
 
 	virtual void on_write_partial(const elliptics::sync_write_result &result, const elliptics::error_info &error) {
 		if (error) {
@@ -289,6 +283,10 @@ protected:
 			this->send_reply(swarm::http_response::service_unavailable);
 			return;
 		}
+
+		NLOG_INFO("buffered-write: on_write_finished: url: %s, written: %zu/%zu, time: %ld msecs",
+				this->request().url().to_human_readable().c_str(),
+				m_offset - m_orig_offset, m_size, m_timer.elapsed());
 
 		nullx::JsonValue value;
 		generate_upload_reply(value, result);
