@@ -31,6 +31,8 @@
     "request_header": "X-Request",
     "trace_header": "X-Trace",
     "log_request_headers": ["User-Agent", "Authorization", "Cookie"],
+    "io-thread-num": 8,
+    "nonblocking-io-thread-num": 6,
     "application": {
 	"remotes": [
 		"localhost:1026:2"
@@ -44,6 +46,7 @@
 	"metadata_groups": [1,2],
 	"domain": "reverbrain.com",
 	"meta_bucket": "b1",
-	"static_root": "/home/zbr/awork/web/broadcast/frontend"
+	"static_root_dir": "/home/zbr/awork/web/broadcast/frontend",
+	"mime_file": "/etc/mime.types"
     }
 }
