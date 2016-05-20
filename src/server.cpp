@@ -1,6 +1,8 @@
 #include "nullx/asio.hpp"
+#include "nullx/get.hpp"
 #include "nullx/index.hpp"
 #include "nullx/log.hpp"
+#include "nullx/mime.hpp"
 
 #include <ebucket/bucket_processor.hpp>
 #include <ribosome/expiration.hpp>
@@ -44,6 +46,16 @@ public:
 			options::methods("POST", "PUT")
 		);
 
+		on<nullx::on_get<nullx_server>>(
+			options::prefix_match("/get"),
+			options::methods("GET")
+		);
+
+		on<nullx::on_static<nullx_server>>(
+			options::prefix_match("/"),
+			options::methods("GET")
+		);
+
 		return true;
 	}
 
@@ -82,17 +94,17 @@ public:
 			if (attr.size() <= 1)
 				continue;
 
-			std::vector<std::string> a;
-			boost::split(a, attr, boost::is_any_of("="));
-
-			if (a.size() != 2)
+			auto eqpos = attr.find('=');
+			if (eqpos == std::string::npos)
 				continue;
 
-			if (a[0] != nullx::cookie_prefix)
+			if (attr.substr(0, eqpos) != nullx::cookie_prefix)
 				continue;
+
+			std::string cookie = attr.substr(eqpos+1);
 
 			std::lock_guard<std::mutex> guard(m_auth_lock);
-			auto it = m_mboxes.find(a[1]);
+			auto it = m_mboxes.find(cookie);
 			if (it == m_mboxes.end())
 				continue;
 
@@ -101,7 +113,7 @@ public:
 				return true;
 			}
 
-			return false;
+			continue;
 		}
 
 		return false;
@@ -117,6 +129,14 @@ public:
 		return m_vlock.try_lock(key);
 	}
 
+	const std::string &static_root_dir() const {
+		return m_static_root_dir;
+	}
+
+	std::string content_type(const std::string &name) const {
+		return m_mime->find(name);
+	}
+
 private:
 	std::shared_ptr<elliptics::node> m_node;
 	std::unique_ptr<elliptics::session> m_session;
@@ -128,11 +148,15 @@ private:
 	std::string m_meta_bucket;
 	std::string m_domain;
 
+	std::string m_static_root_dir;
+
 	std::mutex m_auth_lock;
 	std::unordered_map<std::string, nullx::mailbox_t> m_mboxes;
 
 	ribosome::expiration m_expire;
 	ribosome::vector_lock m_vlock;
+
+	std::unique_ptr<nullx::mime> m_mime;
 
 	bool elliptics_init(const rapidjson::Value &config) {
 		dnet_config node_config;
@@ -263,6 +287,10 @@ private:
 		}
 		m_meta_bucket.assign(meta_bucket);
 
+		return true;
+	}
+
+	bool prepare_server(const rapidjson::Value &config) {
 		const char *domain = ebucket::get_string(config, "domain");
 		if (!domain) {
 			NLOG_ERROR("\"application.domain\" field is missed");
@@ -270,11 +298,20 @@ private:
 		}
 		m_domain.assign(domain);
 
-		return true;
-	}
+		const char *root = ebucket::get_string(config, "static_root_dir");
+		if (!root) {
+			NLOG_ERROR("\"application.static_root_dir\" field is missed");
+			return false;
+		}
+		m_static_root_dir.assign(root);
 
-	bool prepare_server(const rapidjson::Value &config) {
-		(void) config;
+		const char *mime_file = ebucket::get_string(config, "mime_file");
+		if (!mime_file) {
+			NLOG_ERROR("\"application.mime_file\" field is missed");
+			return false;
+		}
+		m_mime.reset(new nullx::mime("application/octet-stream", mime_file));
+
 		return true;
 	}
 };
