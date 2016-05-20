@@ -474,18 +474,16 @@ private:
 		const elliptics::read_result_entry &entry = result[0];
 		const elliptics::data_pointer &file = entry.file();
 
-		bool last = this->m_devices[this->m_device_index]->size() == 0;
-
-		NLOG_NOTICE("buffered-get: on_first_chunk_read: url: %s: "
-				"offset: %lu, data-size: %lu, last-in-current-device: %d, device: %zd/%zd",
-				this->m_url.c_str(), m_prefetched_offset, (unsigned long)file.size(), last,
-				this->m_device_index, this->m_devices.size());
-
 		m_prefetched_data = file;
 
 		struct dnet_io_attr *io = entry.io_attribute();
 		this->m_total_size = io->total_size;
 		this->m_timestamp = io->timestamp;
+
+		NLOG_NOTICE("buffered-get: on_first_chunk_read: url: %s: "
+				"prefetched_offset: %lu, prefetched_size: %lu, total_size: %ld",
+				this->m_url.c_str(), m_prefetched_offset, (unsigned long)file.size(), this->m_total_size);
+
 
 		// if this is the very first read, it is possible that some ranges are opened, for example 500- or -300,
 		// we have to update all of them and will generate IO devices to read data and to host headers/delimiters
