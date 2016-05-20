@@ -206,7 +206,7 @@ private:
 				setError("Parser bug: index overflows lookbehind buffer. "
 					"Please send bug report with input file attached.");
 				throw std::out_of_range("index overflows lookbehind buffer");
-			} else if (index - 1 < 0) {
+			} else if (index < 1) {
 				setError("Parser bug: index underflows lookbehind buffer. "
 					"Please send bug report with input file attached.");
 				throw std::out_of_range("index underflows lookbehind buffer");

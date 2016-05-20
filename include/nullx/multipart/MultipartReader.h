@@ -52,6 +52,10 @@ private:
 	}
 	
 	static void cbPartBegin(const char *buffer, size_t start, size_t end, void *userData) {
+		(void) buffer;
+		(void) start;
+		(void) end;
+
 		MultipartReader *self = (MultipartReader *) userData;
 		self->headersProcessed = false;
 		self->currentHeaders.clear();
@@ -70,6 +74,10 @@ private:
 	}
 	
 	static void cbHeaderEnd(const char *buffer, size_t start, size_t end, void *userData) {
+		(void) buffer;
+		(void) start;
+		(void) end;
+
 		MultipartReader *self = (MultipartReader *) userData;
 		self->currentHeaders.insert(std::make_pair(self->currentHeaderName,
 			self->currentHeaderValue));
@@ -78,6 +86,10 @@ private:
 	}
 	
 	static void cbHeadersEnd(const char *buffer, size_t start, size_t end, void *userData) {
+		(void) buffer;
+		(void) start;
+		(void) end;
+
 		MultipartReader *self = (MultipartReader *) userData;
 		if (self->onPartBegin != NULL) {
 			self->onPartBegin(self->currentHeaders, self->userData);
@@ -95,6 +107,10 @@ private:
 	}
 	
 	static void cbPartEnd(const char *buffer, size_t start, size_t end, void *userData) {
+		(void) buffer;
+		(void) start;
+		(void) end;
+
 		MultipartReader *self = (MultipartReader *) userData;
 		if (self->onPartEnd != NULL) {
 			self->onPartEnd(self->userData);
@@ -102,6 +118,10 @@ private:
 	}
 	
 	static void cbEnd(const char *buffer, size_t start, size_t end, void *userData) {
+		(void) buffer;
+		(void) start;
+		(void) end;
+
 		MultipartReader *self = (MultipartReader *) userData;
 		if (self->onEnd != NULL) {
 			self->onEnd(self->userData);
