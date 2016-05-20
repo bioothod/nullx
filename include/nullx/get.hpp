@@ -2,6 +2,7 @@
 
 #include "nullx/asio.hpp"
 #include "nullx/log.hpp"
+#include "nullx/metadata.hpp"
 #include "nullx/range.hpp"
 #include "nullx/url.hpp"
 
@@ -352,6 +353,21 @@ class on_get : public on_read_base<Server, on_get<Server>>
 {
 public:
 	virtual void on_request(const thevoid::http_request &req, const boost::asio::const_buffer &buffer) {
+		if (!this->server()->check_cookie(req, m_mbox)) {
+			NLOG_ERROR("upload: on_request: url: %s: invalid cookie, redirecting to login page",
+					req.url().to_human_readable().c_str());
+			thevoid::http_response reply;
+			reply.headers().set("Access-Control-Allow-Origin", "*");
+			reply.set_code(swarm::http_response::forbidden);
+			reply.headers().set_content_length(0);
+			this->send_reply(std::move(reply));
+			return;
+		}
+
+		NLOG_INFO("get: on_request: url: %s: auth succeeded: username: %s, meta_bucket: %s, meta_index: %s",
+				req.url().to_human_readable().c_str(),
+				m_mbox.username.c_str(), m_mbox.meta_bucket.c_str(), m_mbox.meta_index.c_str());
+
 		const auto &query = req.url().query();
 		this->m_url = req.url().to_human_readable();
 
@@ -432,6 +448,8 @@ private:
 	size_t m_prefetched_offset = 0;
 
 	elliptics::key m_key;
+
+	mailbox_t m_mbox;
 
 	void on_lookup_finished(const elliptics::sync_lookup_result &result, const elliptics::error_info &error) {
 		if (error) {
