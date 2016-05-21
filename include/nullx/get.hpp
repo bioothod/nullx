@@ -484,8 +484,11 @@ private:
 			NLOG_ERROR("buffered-get: on_first_chunk_read: url: %s: error: %s",
 					this->m_url.c_str(), error.message().c_str());
 
-			auto ec = boost::system::errc::make_error_code(static_cast<boost::system::errc::errc_t>(-error.code()));
-			this->reply()->close(ec);
+			if (error.code() == -ENOENT) {
+				this->send_reply(swarm::http_response::not_found);
+			} else {
+				this->send_reply(swarm::http_response::internal_server_error);
+			}
 			return;
 		}
 
