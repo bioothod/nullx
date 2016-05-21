@@ -7,23 +7,25 @@
 namespace ioremap { namespace nullx { namespace url {
 
 static inline const std::string key(const thevoid::http_request &req, bool have_bucket) {
-	std::string key;
-
 	const auto &path = req.url().path_components();
 
+	size_t prefix_size;
 	if (!have_bucket) {
-		size_t prefix_size = 1 + path[0].size() + 1;
-		key = req.url().path().substr(prefix_size);
+		prefix_size = 1 + path[0].size() + 1;
 	} else {
-		size_t prefix_size = 1 + path[0].size() + 1 + path[1].size() + 1;
-		key = req.url().path().substr(prefix_size);
+		prefix_size = 1 + path[0].size() + 1 + path[1].size() + 1;
 	}
 
-	return key;
+	if (prefix_size >= req.url().path().size())
+		return "";
+
+	return req.url().path().substr(prefix_size);
 }
 
 static inline const std::string bucket(const thevoid::http_request &req) {
 	const auto &path = req.url().path_components();
+	if (path.size() <= 1)
+		return "";
 
 	return path[1];
 }
