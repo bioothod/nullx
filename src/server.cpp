@@ -32,29 +32,39 @@ public:
 		if (!elliptics_init(config))
 			return false;
 
-		on<nullx::on_login<nullx_server>>(
-			options::prefix_match("/login"),
+		on<nullx::on_user_login<nullx_server>>(
+			options::prefix_match("/user_login"),
 			options::methods("POST", "PUT")
 		);
-		on<nullx::on_signup<nullx_server>>(
-			options::prefix_match("/signup"),
+		on<nullx::on_user_signup<nullx_server>>(
+			options::prefix_match("/user_signup"),
+			options::methods("POST", "PUT")
+		);
+		on<nullx::on_user_update<nullx_server>>(
+			options::prefix_match("/user_update"),
 			options::methods("POST", "PUT")
 		);
 
 
 		on<nullx::on_upload<nullx_server>>(
-			options::prefix_match("/upload"),
+			options::prefix_match("/upload/"),
 			options::methods("POST", "PUT")
 		);
+		on<nullx::on_get<nullx_server>>(
+			options::prefix_match("/get/"),
+			options::methods("GET")
+		);
+
+
 		on<nullx::on_index<nullx_server>>(
 			options::prefix_match("/index"),
 			options::methods("POST", "PUT")
 		);
-
-		on<nullx::on_get<nullx_server>>(
-			options::prefix_match("/get"),
-			options::methods("GET")
+		on<nullx::on_list<nullx_server>>(
+			options::prefix_match("/list"),
+			options::methods("POST", "PUT")
 		);
+
 
 		on<nullx::on_static<nullx_server>>(
 			options::prefix_match("/"),
