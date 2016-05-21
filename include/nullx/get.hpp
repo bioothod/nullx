@@ -353,6 +353,23 @@ class on_get : public on_read_base<Server, on_get<Server>>
 {
 public:
 	virtual void on_request(const thevoid::http_request &req, const boost::asio::const_buffer &buffer) {
+		if (req.url().path_components().size() < 2) {
+			NLOG_ERROR("upload: on_request: url: %s: invalid url, there must be at least 2 path components",
+					req.url().to_human_readable().c_str());
+			this->send_reply(swarm::http_response::bad_request);
+			return;
+		}
+
+		std::string key = url::key(req, true);
+		std::string bucket = url::bucket(req);
+
+		if (key.empty() || bucket.empty()) {
+			NLOG_ERROR("upload: on_request: url: %s: invalid url, key and bucket may not be empty",
+					req.url().to_human_readable().c_str());
+			this->send_reply(swarm::http_response::bad_request);
+			return;
+		}
+
 		if (!this->server()->check_cookie(req, m_mbox)) {
 			NLOG_ERROR("upload: on_request: url: %s: invalid cookie, redirecting to login page",
 					req.url().to_human_readable().c_str());
@@ -373,9 +390,7 @@ public:
 
 		(void) buffer;
 
-		m_key = url::key(req, true);
-		std::string bucket = url::bucket(req);
-
+		m_key = key;
 		ebucket::bucket b;
 		elliptics::error_info err = this->server()->bucket_processor()->find_bucket(bucket, b);
 		if (err) {
