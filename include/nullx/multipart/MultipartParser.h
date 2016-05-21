@@ -295,9 +295,12 @@ public:
 		
 		for (i = 0; i < len; i++) {
 			c = buffer[i];
-			
+
 			switch (state) {
 			case ERROR:
+				this->index = index;
+				this->state = state;
+				this->flags = flags;
 				return i;
 			case START:
 				index = 0;
@@ -306,14 +309,14 @@ public:
 				if (index == boundarySize - 2) {
 					if (c != CR) {
 						setError("Malformed. Expected CR after boundary.");
-						return i;
+						break;
 					}
 					index++;
 					break;
 				} else if (index - 1 == boundarySize - 2) {
 					if (c != LF) {
 						setError("Malformed. Expected LF after boundary CR.");
-						return i;
+						break;
 					}
 					index = 0;
 					callback(onPartBegin);
@@ -322,7 +325,7 @@ public:
 				}
 				if (c != boundary[index + 2]) {
 					setError("Malformed. Found different boundary data than the given one.");
-					return i;
+					break;
 				}
 				index++;
 				break;
@@ -346,7 +349,7 @@ public:
 					if (index == 1) {
 						// empty header field
 						setError("Malformed first header name character.");
-						return i;
+						break;
 					}
 					dataCallback(onHeaderField, headerFieldMark, buffer, i, len, true);
 					state = HEADER_VALUE_START;
@@ -356,7 +359,7 @@ public:
 				cl = lower(c);
 				if (cl < 'a' || cl > 'z') {
 					setError("Malformed header name.");
-					return i;
+					break;
 				}
 				break;
 			case HEADER_VALUE_START:
@@ -376,7 +379,7 @@ public:
 			case HEADER_VALUE_ALMOST_DONE:
 				if (c != LF) {
 					setError("Malformed header value: LF expected after CR");
-					return i;
+					break;
 				}
 				
 				state = HEADER_FIELD_START;
@@ -384,7 +387,7 @@ public:
 			case HEADERS_ALMOST_DONE:
 				if (c != LF) {
 					setError("Malformed header ending: LF expected after CR");
-					return i;
+					break;
 				}
 				
 				callback(onHeadersEnd);
@@ -397,6 +400,9 @@ public:
 				processPartData(prevIndex, index, buffer, len, boundaryEnd, i, c, state, flags);
 				break;
 			default:
+				this->index = index;
+				this->state = state;
+				this->flags = flags;
 				return i;
 			}
 		}
