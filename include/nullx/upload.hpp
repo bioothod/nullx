@@ -3,6 +3,7 @@
 #include "nullx/asio.hpp"
 #include "nullx/jsonvalue.hpp"
 #include "nullx/log.hpp"
+#include "nullx/multipart/MultipartReader.h"
 #include "nullx/url.hpp"
 
 #include <swarm/url.hpp>
@@ -129,11 +130,28 @@ public:
 			return;
 		}
 
+		auto content_type = req.headers().content_type();
+		if (content_type) {
+			const auto &ct = content_type.get();
+			if (ct.substr(0, 10) == "multipart/") {
+				err = multipart_init(ct);
+				if (err) {
+					NLOG_ERROR("buffered-write: on_request: url: %s: could not initialize multipart: "
+							"content_type: %s, error: %s [%d]",
+							req.url().to_human_readable().c_str(), ct.c_str(),
+							err.message().c_str(), err.code());
 
-		NLOG_INFO("buffered-write: on_request: url: %s, bucket: %s, key: %s, offset: %llu, size: %llu",
+					this->send_reply(swarm::http_response::bad_request);
+					return;
+				}
+			}
+		}
+
+		NLOG_INFO("buffered-write: on_request: url: %s, bucket: %s, key: %s, offset: %llu, size: %llu, multipart: %s",
 				this->request().url().to_human_readable().c_str(),
 				m_bucket->name().c_str(), m_key.to_string().c_str(),
-				(unsigned long long)m_offset, (unsigned long long)m_size);
+				(unsigned long long)m_offset, (unsigned long long)m_size,
+				m_multipart_check ? m_multipart_boundary.c_str() : "disabled");
 
 		m_session.reset(new elliptics::session(m_bucket->session()));
 		this->try_next_chunk();
@@ -143,6 +161,36 @@ public:
 		const auto data = create_data(buffer);
 
 		NLOG_INFO("buffered-write: on_chunk: url: %s, size: %zu, m_offset: %lu, flags: %u",
+				this->request().url().to_human_readable().c_str(), data.size(), m_offset, flags);
+
+		if (m_multipart_check) {
+			m_current_flags = flags;
+
+			size_t fed = 0;
+			do {
+				size_t ret = m_multipart.feed(data.data<char>() + fed, data.size() - fed);
+					NLOG_ERROR("fed: %ld, ret: %ld, data.size: %ld", fed, ret, data.size());
+				fed += ret;
+			} while (fed < data.size() && !m_multipart.stopped());
+
+			if (m_multipart.hasError()) {
+				NLOG_ERROR("buffered-write: on_chunk: url: %s, size: %zu, m_offset: %lu, flags: %u, "
+						"invalid multipart message: %s, fed: %ld, boundary: %s",
+						this->request().url().to_human_readable().c_str(),
+						data.size(), m_offset, flags, m_multipart.getErrorMessage(), fed,
+						m_multipart_boundary.c_str());
+				this->send_reply(swarm::http_response::bad_request);
+				return;
+			}
+
+			return;
+		}
+
+		on_chunk_raw(data, flags);
+	}
+
+	void on_chunk_raw(const elliptics::data_pointer &data, unsigned int flags) {
+		NLOG_INFO("buffered-write: on_chunk_raw: url: %s, size: %zu, m_offset: %lu, flags: %u",
 				this->request().url().to_human_readable().c_str(), data.size(), m_offset, flags);
 
 		elliptics::async_write_result result = write(data, flags);
@@ -200,6 +248,112 @@ protected:
 	ribosome::timer m_timer;
 
 	mailbox_t m_mbox;
+
+	MultipartReader m_multipart;
+	bool m_multipart_check = false;
+	std::string m_multipart_boundary;
+
+	unsigned int m_current_flags = 0;
+
+	elliptics::error_info multipart_init(const std::string &ct) {
+		std::vector<std::string> attrs;
+		boost::split(attrs, ct, boost::is_any_of("; "));
+		for (const auto &attr: attrs) {
+			if (attr.size() <= 1)
+				continue;
+
+			auto eqpos = attr.find('=');
+			if (eqpos == std::string::npos)
+				continue;
+
+			if (attr.substr(0, eqpos) != "boundary")
+				continue;
+
+			std::string b = attr.substr(eqpos+1);
+			if (b.empty()) {
+				return elliptics::create_error(-EINVAL, "invalid empty boundary, header: '%s'", ct.c_str());
+			}
+
+			m_multipart_boundary = b;
+			m_multipart.setBoundary(b);
+			m_multipart.userData = (void *)this;
+			m_multipart.onPartBegin = &this->on_part_begin_c;
+			m_multipart.onPartData = &this->on_part_data_c;
+
+			m_multipart_check = true;
+
+			NLOG_NOTICE("buffered-write: mutlipart_init: url: %s, content-type: '%s', boundary: '%s'",
+				this->request().url().to_human_readable().c_str(), ct.c_str(), m_multipart_boundary.c_str());
+			return elliptics::error_info();
+		}
+
+		return elliptics::create_error(-EINVAL, "could not find valid boundary, header: '%s'", ct.c_str());
+	}
+
+	void on_part_begin(const MultipartHeaders &headers) {
+		for (auto it = headers.begin(), end = headers.end(); it != end; ++it) {
+			if (it->first != "Content-Disposition")
+				continue;
+
+			std::vector<std::string> attrs;
+			boost::split(attrs, it->second, boost::is_any_of("; "));
+			for (const auto &attr: attrs) {
+				if (attr.size() <= 1)
+					continue;
+
+				auto eqpos = attr.find('=');
+				if (eqpos == std::string::npos)
+					continue;
+
+				if (attr.substr(0, eqpos) != "filename")
+					continue;
+
+				eqpos++;
+				if (eqpos >= attr.size())
+					continue;
+
+				if (attr[eqpos] == '"')
+					eqpos++;
+
+				if (eqpos == attr.size())
+					continue;
+
+				ssize_t count = attr.size() - eqpos;
+				if (attr[attr.size() - 1] == '"')
+					count--;
+
+				if (count <= 0)
+					continue;
+
+				std::string b = attr.substr(eqpos, count);
+				if (b.empty())
+					continue;
+
+				NLOG_INFO("buffered-write: on_part_begin: url: %s, "
+						"internal multipart header changes filename: %s -> %s",
+						this->request().url().to_human_readable().c_str(),
+						m_key.to_string().c_str(), b.c_str());
+
+				m_key = b;
+			}
+		}
+	}
+
+	static void on_part_begin_c(const MultipartHeaders &headers, void *priv) {
+		on_upload_base<Server, Stream> *th = reinterpret_cast<on_upload_base<Server, Stream> *>(priv);
+		th->on_part_begin(headers);
+	}
+
+	void on_part_data(const char *data, size_t size) {
+		auto dp = elliptics::data_pointer::from_raw((void *)data, size);
+
+		on_chunk_raw(dp, m_current_flags);
+	}
+
+	static void on_part_data_c(const char *data, size_t size, void *priv) {
+		on_upload_base<Server, Stream> *th = reinterpret_cast<on_upload_base<Server, Stream> *>(priv);
+		th->on_part_data(data, size);
+	}
 
 	virtual void on_write_partial(const elliptics::sync_write_result &result, const elliptics::error_info &error) {
 		if (error) {
