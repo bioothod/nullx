@@ -165,6 +165,8 @@ public:
 
 		if (m_multipart_check) {
 			m_current_flags = flags;
+			m_multipart_current_chunk = elliptics::data_pointer::allocate(data.size());
+			m_multipart_current_offset = 0;
 
 			size_t fed = 0;
 			do {
@@ -181,6 +183,14 @@ public:
 						m_multipart_boundary.c_str());
 				this->send_reply(swarm::http_response::bad_request);
 				return;
+			}
+
+			if (flags & thevoid::buffered_request_stream<Server>::last_chunk) {
+				// this is the last message from client and multipart parser has not found end of the stream,
+				// complete multipart state machine anyway
+				if (m_multipart_current_offset) {
+					this->on_part_end();
+				}
 			}
 
 			return;
@@ -253,6 +263,8 @@ protected:
 	bool m_multipart_check = false;
 	std::string m_multipart_boundary;
 
+	elliptics::data_pointer m_multipart_current_chunk;
+	size_t m_multipart_current_offset = 0;
 	unsigned int m_current_flags = 0;
 
 	elliptics::error_info multipart_init(const std::string &ct) {
@@ -279,6 +291,7 @@ protected:
 			m_multipart.userData = (void *)this;
 			m_multipart.onPartBegin = &this->on_part_begin_c;
 			m_multipart.onPartData = &this->on_part_data_c;
+			m_multipart.onPartEnd = &this->on_part_end_c;
 
 			m_multipart_check = true;
 
@@ -345,14 +358,31 @@ protected:
 	}
 
 	void on_part_data(const char *data, size_t size) {
-		auto dp = elliptics::data_pointer::from_raw((void *)data, size);
+		if (m_multipart_current_offset + size > m_multipart_current_chunk.size()) {
+			elliptics::throw_error(-E2BIG, "invalid multipart message: "
+					"current_offset: %ld, chunk_size: %ld, sum %ld must be <= data_pointer_size: %ld",
+					m_multipart_current_offset, size,
+					m_multipart_current_offset + size, m_multipart_current_chunk.size());
+		}
 
-		on_chunk_raw(dp, m_current_flags);
+		memcpy(m_multipart_current_chunk.data<char>() + m_multipart_current_offset, data, size);
+		m_multipart_current_offset += size;
 	}
 
 	static void on_part_data_c(const char *data, size_t size, void *priv) {
 		on_upload_base<Server, Stream> *th = reinterpret_cast<on_upload_base<Server, Stream> *>(priv);
 		th->on_part_data(data, size);
+	}
+
+	void on_part_end() {
+		on_chunk_raw(m_multipart_current_chunk, m_current_flags);
+		// clear offset flag, this means chunk has been sent
+		m_multipart_current_offset = 0;
+	}
+
+	static void on_part_end_c(void *priv) {
+		on_upload_base<Server, Stream> *th = reinterpret_cast<on_upload_base<Server, Stream> *>(priv);
+		th->on_part_end();
 	}
 
 	virtual void on_write_partial(const elliptics::sync_write_result &result, const elliptics::error_info &error) {
@@ -457,10 +487,6 @@ protected:
 			this->send_reply(swarm::http_response::service_unavailable);
 			return;
 		}
-
-		NLOG_INFO("buffered-write: on_write_finished: url: %s, written: %zu/%zu, time: %ld msecs",
-				this->request().url().to_human_readable().c_str(),
-				m_offset - m_orig_offset, m_size, m_timer.elapsed());
 
 		nullx::JsonValue value;
 		generate_upload_reply(value, result);
