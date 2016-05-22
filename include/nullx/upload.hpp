@@ -59,7 +59,7 @@ struct upload_completion {
 
 		char addr_str[128];
 		dnet_addr_string_raw(entry.storage_address(), addr_str, sizeof(addr_str));
-		
+
 		rapidjson::Value server_addr(addr_str, strlen(addr_str), allocator);
 		result_object.AddMember("server", server_addr, allocator);
 	}
@@ -437,6 +437,9 @@ protected:
 
 		rapidjson::Value bucket_val(m_bucket->name().c_str(), m_bucket->name().size(), value.GetAllocator());
 		value.AddMember("bucket", bucket_val, value.GetAllocator());
+
+		rapidjson::Value key_val(m_key.to_string().c_str(), m_key.to_string().size(), value.GetAllocator());
+		value.AddMember("key", key_val, value.GetAllocator());
 
 		value.AddMember("success-groups", sgroups_val, value.GetAllocator());
 		value.AddMember("error-groups", egroups_val, value.GetAllocator());
