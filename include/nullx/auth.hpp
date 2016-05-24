@@ -34,7 +34,7 @@ public:
 			return err;
 
 		mbox.meta_bucket = b->name();
-		mbox.meta_index = mbox.username + ".tags";
+		mbox.meta_index = "tags";
 
 		std::stringstream buffer;
 		msgpack::pack(buffer, mbox);

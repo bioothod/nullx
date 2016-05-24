@@ -145,7 +145,17 @@ private:
 			indexes.push_back(std::string(it->GetString()));
 		}
 
-		auto err = update_indexes(bucket, key, indexes);
+		auto now = std::chrono::system_clock::now();
+		time_t tt = std::chrono::system_clock::to_time_t(now);
+		struct tm tm;
+		localtime_r((time_t *)&tt, &tm);
+		char time_str[128];
+		strftime(time_str, sizeof(time_str), "%Y-%m-%d", &tm);
+		std::string time_index(time_str);
+
+		indexes.push_back(time_index);
+
+		auto err = update_indexes(bucket, key, m_mbox.meta_bucket, m_mbox.meta_index, indexes);
 		if (err)
 			return err;
 
@@ -168,18 +178,14 @@ private:
 		return err;
 	}
 
-	elliptics::error_info update_indexes(const std::string &bucket, const std::string &key, std::vector<std::string> &indexes) {
+	elliptics::error_info update_indexes(const std::string &bucket, const std::string &key,
+			const std::string meta_bucket, const std::string &meta_index,
+			const std::vector<std::string> &indexes) {
 		uint64_t tsec, tnsec;
 		timestamp(std::chrono::system_clock::now(), &tsec, &tnsec);
 
-		struct tm tm;
-		localtime_r((time_t *)&tsec, &tm);
-		char time_str[128];
-		strftime(time_str, sizeof(time_str), "%Y-%m-%d", &tm);
-		std::string time_index(time_str);
-
-		indexes.push_back(time_index);
-
+		greylock::eurl idx;
+		idx.bucket = meta_bucket;
 
 		for (const auto &iname: indexes) {
 			greylock::key obj;
@@ -190,9 +196,7 @@ private:
 			obj.url.bucket = bucket;
 			obj.url.key = key;
 
-			greylock::eurl idx;
-			idx.bucket = bucket;
-			idx.key = iname;
+			idx.key = m_mbox.index(iname);
 
 			ribosome::locker<Server> l(this->server(), idx.str());
 			std::unique_lock<ribosome::locker<Server>> lk(l);
@@ -202,10 +206,7 @@ private:
 				return err;
 		}
 
-
-		greylock::eurl idx;
-		idx.bucket = m_mbox.meta_bucket;
-		idx.key = m_mbox.meta_index;
+		idx.key = m_mbox.index(meta_index);
 
 		ribosome::locker<Server> l(this->server(), idx.str());
 		std::unique_lock<ribosome::locker<Server>> lk(l);
@@ -216,7 +217,7 @@ private:
 			// store index name into meta_index
 			obj.id = iname;
 			obj.set_timestamp(tsec, tnsec);
-			obj.url.bucket = m_mbox.meta_bucket;
+			obj.url.bucket = meta_bucket;
 			obj.url.key = iname;
 
 			auto err = insert_index(idx, obj);
@@ -313,37 +314,20 @@ public:
 		rapidjson::Value tvals;
 		tvals.SetArray();
 
-		std::vector<greylock::eurl> tnames;
+		std::vector<std::string> tnames;
 		for (auto it = tags.Begin(), end = tags.End(); it != end; ++it) {
-			if (!it->IsObject()) {
+			if (!it->IsString()) {
 				NLOG_ERROR("index: on_request: url: %s: tags array must contain objects",
 						req.url().to_human_readable().c_str());
 				this->send_reply(swarm::http_response::bad_request);
 				return;
 			}
 
-			const char *bucket = ebucket::get_string(*it, "bucket");
-			const char *key = ebucket::get_string(*it, "key");
-			if (!bucket || !key) {
-				NLOG_ERROR("index: on_request: url: %s: tags array element must contain bucket and key strings, "
-						"bucket: %s, key: %s",
-						req.url().to_human_readable().c_str(), bucket, key);
-				this->send_reply(swarm::http_response::bad_request);
-				return;
-			}
-
-			greylock::eurl url;
-			url.bucket = bucket;
-			url.key = key;
-
-			tnames.emplace_back(url);
+			tnames.push_back(it->GetString());
 		}
 
 		if (tnames.empty()) {
-			greylock::eurl meta;
-			meta.bucket = m_mbox.meta_bucket;
-			meta.key = m_mbox.meta_index;
-			tnames.emplace_back(meta);
+			tnames.push_back(m_mbox.meta_index);
 		}
 
 		read_indexes(tvals, tnames, value.GetAllocator());
@@ -365,21 +349,27 @@ private:
 	mailbox_t m_mbox;
 
 	template <typename Allocator>
-	void read_indexes(rapidjson::Value &tvals, const std::vector<greylock::eurl> &tnames, Allocator &allocator) {
+	void read_indexes(rapidjson::Value &tvals, const std::vector<std::string> &tnames, Allocator &allocator) {
 		for (const auto &tag: tnames) {
 			rapidjson::Value tval(rapidjson::kObjectType);
 
+			greylock::eurl idx;
+			idx.bucket = m_mbox.meta_bucket;
+			idx.key = tag;
+
 			rapidjson::Value tname(rapidjson::kObjectType);
-			pack_eurl(tname, tag, allocator);
+			pack_eurl(tname, idx, allocator);
 			tval.AddMember("tag", tname, allocator);
 
 			try {
 				rapidjson::Value kvals(rapidjson::kArrayType);
 
-				ribosome::locker<Server> l(this->server(), tag.str());
+				idx.key = m_mbox.index(tag);
+
+				ribosome::locker<Server> l(this->server(), idx.str());
 				std::unique_lock<ribosome::locker<Server>> lk(l);
 
-				greylock::read_only_index index(*this->server()->bucket_processor(), tag);
+				greylock::read_only_index index(*this->server()->bucket_processor(), idx);
 
 				for (auto it = index.begin(), end = index.end(); it != end; ++it) {
 					rapidjson::Value key(rapidjson::kObjectType);
@@ -391,10 +381,10 @@ private:
 				tval.AddMember("keys", kvals, allocator);
 			} catch (const elliptics::error &e) {
 				NLOG_ERROR("list: read_indexes: tag: %s, elliptics exception: %s [%d]",
-						tag.str().c_str(), e.what(), e.error_code());
+						idx.str().c_str(), e.what(), e.error_code());
 				add_error(tval, e.error_code(), e.what(), allocator);
 			} catch (const std::exception &e) {
-				NLOG_ERROR("list: read_indexes: tag: %s, exception: %s", tag.str().c_str(), e.what());
+				NLOG_ERROR("list: read_indexes: tag: %s, exception: %s", idx.str().c_str(), e.what());
 				add_error(tval, -EINVAL, e.what(), allocator);
 			}
 
