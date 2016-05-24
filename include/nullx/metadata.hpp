@@ -17,6 +17,14 @@ struct mailbox_t {
 	std::string		cookie;
 	std::chrono::system_clock::time_point	expires_at;
 	long			max_age;
+
+	std::string index(const std::string &name) {
+		return username + "." + name;
+	}
+
+	std::string filename(const std::string &bucket, const std::string &name) {
+		return username + "/" + bucket + "/" + name;
+	}
 };
 
 }} // namespace ioremap::nullx
