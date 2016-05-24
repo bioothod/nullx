@@ -89,27 +89,13 @@ public:
 	virtual void on_request(const thevoid::http_request &req) {
 		m_timer.restart();
 
-		if (!this->server()->check_cookie(req, m_mbox)) {
-			NLOG_ERROR("upload: on_request: url: %s: invalid cookie, redirecting to login page",
-					req.url().to_human_readable().c_str());
-			thevoid::http_response reply;
-			reply.headers().set("Access-Control-Allow-Origin", "*");
-			reply.set_code(swarm::http_response::forbidden);
-			reply.headers().set_content_length(0);
-			this->send_reply(std::move(reply));
-			return;
-		}
-
-		NLOG_INFO("upload: on_request: url: %s: auth succeeded: username: %s, meta_bucket: %s, meta_index: %s",
-				req.url().to_human_readable().c_str(),
-				m_mbox.username.c_str(), m_mbox.meta_bucket.c_str(), m_mbox.meta_index.c_str());
-
 		this->set_chunk_size(10 * 1024 * 1024);
 
 		try {
 			const auto &query = this->request().url().query();
 			m_orig_offset = m_offset = query.item_value("offset", 0llu);
-			m_key = url::key(req, false);
+			m_key_orig = url::key(req, false);
+			m_key = this->set_key(m_key_orig);
 		} catch (const std::exception &e) {
 			NLOG_ERROR("buffered-write: url: %s: invalid offset parameter: %s",
 					req.url().to_human_readable().c_str(), e.what());
@@ -247,8 +233,13 @@ public:
 				m_offset - m_orig_offset, m_size, m_timer.elapsed());
 	}
 
+	virtual std::string set_key(const std::string &key) {
+		return key;
+	}
+
 protected:
 	elliptics::key m_key;
+	std::string m_key_orig;
 	ebucket::bucket m_bucket;
 	std::unique_ptr<elliptics::session> m_session;
 
@@ -256,8 +247,6 @@ protected:
 	uint64_t m_size;
 
 	ribosome::timer m_timer;
-
-	mailbox_t m_mbox;
 
 	MultipartReader m_multipart;
 	bool m_multipart_check = false;
@@ -345,9 +334,10 @@ protected:
 				NLOG_INFO("buffered-write: on_part_begin: url: %s, "
 						"internal multipart header changes filename: %s -> %s",
 						this->request().url().to_human_readable().c_str(),
-						m_key.to_string().c_str(), b.c_str());
+						m_key_orig.c_str(), b.c_str());
 
-				m_key = b;
+				m_key_orig = b;
+				m_key = this->set_key(b);
 			}
 		}
 	}
@@ -468,7 +458,7 @@ protected:
 		rapidjson::Value bucket_val(m_bucket->name().c_str(), m_bucket->name().size(), value.GetAllocator());
 		value.AddMember("bucket", bucket_val, value.GetAllocator());
 
-		rapidjson::Value key_val(m_key.to_string().c_str(), m_key.to_string().size(), value.GetAllocator());
+		rapidjson::Value key_val(m_key_orig.c_str(), m_key_orig.size(), value.GetAllocator());
 		value.AddMember("key", key_val, value.GetAllocator());
 
 		value.AddMember("success-groups", sgroups_val, value.GetAllocator());
@@ -509,6 +499,37 @@ template <typename Server>
 class on_upload : public on_upload_base<Server, on_upload<Server>>
 {
 public:
+};
+
+template <typename Server>
+class on_upload_auth : public on_upload_base<Server, on_upload_auth<Server>>
+{
+public:
+	virtual std::string set_key(const std::string &key) {
+		return m_mbox.filename(key);
+	}
+
+	virtual void on_request(const thevoid::http_request &req) {
+		if (!this->server()->check_cookie(req, m_mbox)) {
+			NLOG_ERROR("upload: on_request: url: %s: invalid cookie, redirecting to login page",
+					req.url().to_human_readable().c_str());
+			thevoid::http_response reply;
+			reply.headers().set("Access-Control-Allow-Origin", "*");
+			reply.set_code(swarm::http_response::forbidden);
+			reply.headers().set_content_length(0);
+			this->send_reply(std::move(reply));
+			return;
+		}
+
+		NLOG_INFO("upload: on_request: url: %s: auth succeeded: username: %s, meta_bucket: %s, meta_index: %s",
+				req.url().to_human_readable().c_str(),
+				m_mbox.username.c_str(), m_mbox.meta_bucket.c_str(), m_mbox.meta_index.c_str());
+
+		on_upload_base<Server, on_upload_auth<Server>>::on_request(req);
+	}
+
+private:
+	mailbox_t m_mbox;
 };
 
 }} // namespace ioremap::nullx

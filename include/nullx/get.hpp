@@ -370,27 +370,12 @@ public:
 			return;
 		}
 
-		if (!this->server()->check_cookie(req, m_mbox)) {
-			NLOG_ERROR("upload: on_request: url: %s: invalid cookie, redirecting to login page",
-					req.url().to_human_readable().c_str());
-			thevoid::http_response reply;
-			reply.headers().set("Access-Control-Allow-Origin", "*");
-			reply.set_code(swarm::http_response::forbidden);
-			reply.headers().set_content_length(0);
-			this->send_reply(std::move(reply));
-			return;
-		}
-
-		NLOG_INFO("get: on_request: url: %s: auth succeeded: username: %s, meta_bucket: %s, meta_index: %s",
-				req.url().to_human_readable().c_str(),
-				m_mbox.username.c_str(), m_mbox.meta_bucket.c_str(), m_mbox.meta_index.c_str());
-
 		const auto &query = req.url().query();
 		this->m_url = req.url().to_human_readable();
 
 		(void) buffer;
 
-		m_key = key;
+		m_key = this->set_key(key);
 		ebucket::bucket b;
 		elliptics::error_info err = this->server()->bucket_processor()->find_bucket(bucket, b);
 		if (err) {
@@ -454,6 +439,10 @@ public:
 					std::bind(&on_get::on_lookup_finished, this->shared_from_this(),
 						std::placeholders::_1, std::placeholders::_2));
 		}
+	}
+
+	virtual std::string set_key(const std::string &key) {
+		return key;
 	}
 
 private:
@@ -577,6 +566,37 @@ private:
 	void add_async_raw(size_t offset, size_t size) {
 		this->m_devices.emplace_back(new async_device(*m_session, m_key, offset, size));
 	}
+};
+
+template <typename Server>
+class on_get_auth : public on_get<Server>
+{
+public:
+	virtual void on_request(const thevoid::http_request &req, const boost::asio::const_buffer &buffer) {
+		if (!this->server()->check_cookie(req, m_mbox)) {
+			NLOG_ERROR("upload: on_request: url: %s: invalid cookie, redirecting to login page",
+					req.url().to_human_readable().c_str());
+			thevoid::http_response reply;
+			reply.headers().set("Access-Control-Allow-Origin", "*");
+			reply.set_code(swarm::http_response::forbidden);
+			reply.headers().set_content_length(0);
+			this->send_reply(std::move(reply));
+			return;
+		}
+
+		NLOG_INFO("get: on_request: url: %s: auth succeeded: username: %s, meta_bucket: %s, meta_index: %s",
+				req.url().to_human_readable().c_str(),
+				m_mbox.username.c_str(), m_mbox.meta_bucket.c_str(), m_mbox.meta_index.c_str());
+
+		on_get<Server>::on_request(req, buffer);
+	}
+
+	virtual std::string set_key(const std::string &key) {
+		return m_mbox.filename(key);
+	}
+
+private:
+	mailbox_t m_mbox;
 };
 
 template <typename Server>

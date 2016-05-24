@@ -46,11 +46,11 @@ public:
 		);
 
 
-		on<nullx::on_upload<nullx_server>>(
+		on<nullx::on_upload_auth<nullx_server>>(
 			options::prefix_match("/upload/"),
 			options::methods("POST", "PUT")
 		);
-		on<nullx::on_get<nullx_server>>(
+		on<nullx::on_get_auth<nullx_server>>(
 			options::prefix_match("/get/"),
 			options::methods("GET")
 		);

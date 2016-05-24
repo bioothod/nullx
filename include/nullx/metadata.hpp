@@ -22,8 +22,8 @@ struct mailbox_t {
 		return username + "." + name;
 	}
 
-	std::string filename(const std::string &bucket, const std::string &name) {
-		return username + "/" + bucket + "/" + name;
+	std::string filename(const std::string &name) {
+		return username + "/" + name;
 	}
 };
 
