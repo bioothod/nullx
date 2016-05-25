@@ -1,3 +1,9 @@
+nullx (0.2.0) unstable; urgency=low
+
+  * Implemented all get/upload/static index/list and login/signup methods
+
+ -- Evgeniy Polyakov <zbr@ioremap.net>  Thu, 26 May 2016 01:17:13 +0400
+
 nullx (0.1.0) unstable; urgency=low
 
   * Initial commit

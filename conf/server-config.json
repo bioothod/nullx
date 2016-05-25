@@ -15,8 +15,8 @@
                 },
                 "sink": {
                     "type": "files",
-                    "path": "/dev/stdout",
-                    "path1": "nulla.log",
+                    "path1": "/dev/stdout",
+                    "path": "nullx.log",
                     "autoflush": true,
                     "rotation": { "move": 0 }
                 }

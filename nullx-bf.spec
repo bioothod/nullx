@@ -1,6 +1,6 @@
 Summary:	Elliptics streaming (Nulla project) web frontend server
 Name:		nullx
-Version:	0.1.0
+Version:	0.2.0
 Release:	1%{?dist}
 
 License:	Apache 2.0
@@ -45,6 +45,9 @@ rm -rf %{buildroot}
 #%{_libdir}/*.so.*
 
 %changelog
+* Thu May 26 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.2.0
+- Implemented all get/upload/static index/list and login/signup methods
+
 * Tue May 10 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.1.0
 - Initial commit
 
