@@ -317,7 +317,7 @@ public:
 		std::vector<std::string> tnames;
 		for (auto it = tags.Begin(), end = tags.End(); it != end; ++it) {
 			if (!it->IsString()) {
-				NLOG_ERROR("index: on_request: url: %s: tags array must contain objects",
+				NLOG_ERROR("index: on_request: url: %s: tags array must contain strings",
 						req.url().to_human_readable().c_str());
 				this->send_reply(swarm::http_response::bad_request);
 				return;
