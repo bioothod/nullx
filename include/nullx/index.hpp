@@ -410,7 +410,7 @@ private:
 
 		rapidjson::Value ts(rapidjson::kObjectType);
 		long tsec, tnsec;
-		key.get_timestamp(tsec, tnsec);
+		key.get_timestamp(&tsec, &tnsec);
 		ts.AddMember("tsec", tsec, allocator);
 		ts.AddMember("tnsec", tnsec, allocator);
 
