@@ -191,29 +191,31 @@ public:
 	std::string serialize_reply(const mailbox_t &mbox, int error, const std::string &message) const {
 		JsonValue reply;
 
-		rapidjson::Value username_val(mbox.username.c_str(), mbox.username.size(), reply.GetAllocator());
-		reply.AddMember("username", username_val, reply.GetAllocator());
+		if (!error) {
+			rapidjson::Value username_val(mbox.username.c_str(), mbox.username.size(), reply.GetAllocator());
+			reply.AddMember("username", username_val, reply.GetAllocator());
 
-		rapidjson::Value realname_val(mbox.realname.c_str(), mbox.realname.size(), reply.GetAllocator());
-		reply.AddMember("realname", realname_val, reply.GetAllocator());
+			rapidjson::Value realname_val(mbox.realname.c_str(), mbox.realname.size(), reply.GetAllocator());
+			reply.AddMember("realname", realname_val, reply.GetAllocator());
 
-		rapidjson::Value email_val(mbox.email.c_str(), mbox.email.size(), reply.GetAllocator());
-		reply.AddMember("email", email_val, reply.GetAllocator());
+			rapidjson::Value email_val(mbox.email.c_str(), mbox.email.size(), reply.GetAllocator());
+			reply.AddMember("email", email_val, reply.GetAllocator());
 
-		rapidjson::Value meta_bucket_val(mbox.meta_bucket.c_str(), mbox.meta_bucket.size(), reply.GetAllocator());
-		reply.AddMember("meta_bucket", meta_bucket_val, reply.GetAllocator());
+			rapidjson::Value meta_bucket_val(mbox.meta_bucket.c_str(), mbox.meta_bucket.size(), reply.GetAllocator());
+			reply.AddMember("meta_bucket", meta_bucket_val, reply.GetAllocator());
 
-		rapidjson::Value meta_index_val(mbox.meta_index.c_str(), mbox.meta_index.size(), reply.GetAllocator());
-		reply.AddMember("meta_index", meta_index_val, reply.GetAllocator());
+			rapidjson::Value meta_index_val(mbox.meta_index.c_str(), mbox.meta_index.size(), reply.GetAllocator());
+			reply.AddMember("meta_index", meta_index_val, reply.GetAllocator());
+		} else {
+			rapidjson::Value err;
+			err.SetObject();
+			err.AddMember("code", error, reply.GetAllocator());
 
-		rapidjson::Value err;
-		err.SetObject();
-		err.AddMember("code", error, reply.GetAllocator());
+			rapidjson::Value error_message_val(message.c_str(), message.size(), reply.GetAllocator());
+			err.AddMember("message", error_message_val, reply.GetAllocator());
 
-		rapidjson::Value error_message_val(message.c_str(), message.size(), reply.GetAllocator());
-		err.AddMember("message", error_message_val, reply.GetAllocator());
-
-		reply.AddMember("error", err, reply.GetAllocator());
+			reply.AddMember("error", err, reply.GetAllocator());
+		}
 
 		return reply.ToString();
 	}
