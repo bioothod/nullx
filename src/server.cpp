@@ -152,6 +152,10 @@ public:
 		return m_mime->find(name);
 	}
 
+	const std::string &tmp_dir() const {
+		return m_tmp_dir;
+	}
+
 private:
 	std::shared_ptr<elliptics::node> m_node;
 	std::unique_ptr<elliptics::session> m_session;
@@ -172,6 +176,8 @@ private:
 	ribosome::vector_lock m_vlock;
 
 	std::unique_ptr<nullx::mime> m_mime;
+
+	std::string m_tmp_dir;
 
 	bool elliptics_init(const rapidjson::Value &config) {
 		dnet_config node_config;
@@ -326,6 +332,13 @@ private:
 			return false;
 		}
 		m_mime.reset(new nullx::mime("application/octet-stream", mime_file));
+
+		const char *tmp_dir = ebucket::get_string(config, "tmp_dir");
+		if (!tmp_dir) {
+			NLOG_ERROR("\"application.tmp_dir\" field is missed");
+			return false;
+		}
+		m_tmp_dir.assign(tmp_dir);
 
 		return true;
 	}

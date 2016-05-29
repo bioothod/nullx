@@ -47,6 +47,7 @@
 	"domain": "reverbrain.com",
 	"meta_bucket": "b1",
 	"static_root_dir": "/home/zbr/awork/web/broadcast/frontend",
-	"mime_file": "/etc/mime.types"
+	"mime_file": "/etc/mime.types",
+	"tmp_dir": "/tmp/nullx_tmp_dir"
     }
 }
