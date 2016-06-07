@@ -3,6 +3,7 @@
 #include "nullx/index.hpp"
 #include "nullx/log.hpp"
 #include "nullx/mime.hpp"
+#include "nullx/transcode.hpp"
 #include "nullx/upload.hpp"
 
 #include <ebucket/bucket_processor.hpp>
@@ -46,7 +47,7 @@ public:
 		);
 
 
-		on<nullx::on_upload_auth<nullx_server>>(
+		on<nullx::on_upload_auth_media<nullx_server>>(
 			options::prefix_match("/upload/"),
 			options::methods("POST", "PUT")
 		);
@@ -104,8 +105,9 @@ public:
 			return false;
 
 		std::vector<std::string> attrs;
-		boost::split(attrs, *cookie, boost::is_any_of("; "));
-		for (const auto &attr: attrs) {
+		boost::split(attrs, *cookie, boost::is_any_of(";"));
+		for (auto &attr: attrs) {
+			boost::trim(attr);
 			if (attr.size() <= 1)
 				continue;
 
@@ -156,6 +158,10 @@ public:
 		return m_tmp_dir;
 	}
 
+	typedef std::function<void (const std::string &output_file, const elliptics::error_info &error)> transcoding_completion_t;
+	void schedule_transcoding(const std::string &input_file, transcoding_completion_t completion) {
+	}
+
 private:
 	std::shared_ptr<elliptics::node> m_node;
 	std::unique_ptr<elliptics::session> m_session;
@@ -178,6 +184,8 @@ private:
 	std::unique_ptr<nullx::mime> m_mime;
 
 	std::string m_tmp_dir;
+
+	std::unique_ptr<nullx::transcode_controller> m_transcode_ctl;
 
 	bool elliptics_init(const rapidjson::Value &config) {
 		dnet_config node_config;
@@ -340,6 +348,8 @@ private:
 		}
 		m_tmp_dir.assign(tmp_dir);
 
+		int num_workers = ebucket::get_int64(config, "transcoding_workers", 16);
+		m_transcode_ctl.reset(new nullx::transcode_controller(num_workers));
 		return true;
 	}
 };

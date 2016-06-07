@@ -15,6 +15,9 @@
 
 #include <ebucket/bucket.hpp>
 
+#include <nulla/iso_reader.hpp>
+#include <nulla/utils.hpp>
+
 namespace ioremap { namespace nullx {
 
 static inline elliptics::data_pointer create_data(const boost::asio::const_buffer &buffer)
@@ -157,8 +160,10 @@ public:
 			size_t fed = 0;
 			do {
 				size_t ret = m_multipart.feed(data.data<char>() + fed, data.size() - fed);
-					NLOG_ERROR("fed: %ld, ret: %ld, data.size: %ld", fed, ret, data.size());
 				fed += ret;
+
+				NLOG_NOTICE("fed: %ld, ret: %ld, data.size: %ld, stopped: %d, has_error: %d",
+						fed, ret, data.size(), m_multipart.stopped(), m_multipart.hasError());
 			} while (fed < data.size() && !m_multipart.stopped());
 
 			if (m_multipart.hasError()) {
@@ -185,8 +190,8 @@ public:
 		on_chunk_raw(data, flags);
 	}
 
-	void on_chunk_raw(const elliptics::data_pointer &data, unsigned int flags) {
-		NLOG_INFO("buffered-write: on_chunk_raw: url: %s, size: %zu, m_offset: %lu, flags: %u",
+	virtual void on_chunk_raw(const elliptics::data_pointer &data, unsigned int flags) {
+		NLOG_INFO("buffered-write: on_upload_base::on_chunk_raw: url: %s, size: %zu, m_offset: %lu, flags: %u",
 				this->request().url().to_human_readable().c_str(), data.size(), m_offset, flags);
 
 		elliptics::async_write_result result = write(data, flags);
@@ -258,8 +263,9 @@ protected:
 
 	elliptics::error_info multipart_init(const std::string &ct) {
 		std::vector<std::string> attrs;
-		boost::split(attrs, ct, boost::is_any_of("; "));
-		for (const auto &attr: attrs) {
+		boost::split(attrs, ct, boost::is_any_of(";"));
+		for (auto &attr: attrs) {
+			boost::trim(attr);
 			if (attr.size() <= 1)
 				continue;
 
@@ -298,8 +304,9 @@ protected:
 				continue;
 
 			std::vector<std::string> attrs;
-			boost::split(attrs, it->second, boost::is_any_of("; "));
-			for (const auto &attr: attrs) {
+			boost::split(attrs, it->second, boost::is_any_of(";"));
+			for (auto &attr: attrs) {
+				boost::trim(attr);
 				if (attr.size() <= 1)
 					continue;
 
@@ -365,7 +372,7 @@ protected:
 	}
 
 	void on_part_end() {
-		on_chunk_raw(m_multipart_current_chunk, m_current_flags);
+		on_chunk_raw(m_multipart_current_chunk.slice(0, m_multipart_current_offset), m_current_flags);
 		// clear offset flag, this means chunk has been sent
 		m_multipart_current_offset = 0;
 	}
@@ -500,8 +507,8 @@ class on_upload : public on_upload_base<Server, on_upload<Server>>
 public:
 };
 
-template <typename Server>
-class on_upload_auth : public on_upload_base<Server, on_upload_auth<Server>>
+template <typename Server, typename Stream>
+class on_upload_auth_base : public on_upload_base<Server, Stream>
 {
 public:
 	virtual std::string set_key(const std::string &key) {
@@ -524,11 +531,177 @@ public:
 				req.url().to_human_readable().c_str(),
 				m_mbox.username.c_str(), m_mbox.meta_bucket.c_str(), m_mbox.meta_index.c_str());
 
-		on_upload_base<Server, on_upload_auth<Server>>::on_request(req);
+		on_upload_base<Server, Stream>::on_request(req);
 	}
 
 private:
 	mailbox_t m_mbox;
+};
+
+template <typename Server>
+class on_upload_auth : public on_upload_auth_base<Server, on_upload_auth<Server>>
+{
+};
+
+template <typename Server>
+class on_upload_auth_media : public on_upload_auth_base<Server, on_upload_auth_media<Server>>
+{
+public:
+	virtual void on_chunk_raw(const elliptics::data_pointer &dp, unsigned int flags) {
+		NLOG_INFO("buffered-write: on_upload_auth_media::on_chunk_raw: url: %s, size: %zu, m_offset: %lu, flags: %u",
+				this->request().url().to_human_readable().c_str(), dp.size(), this->m_offset, flags);
+
+
+		std::string content_type = this->server()->content_type(this->m_key_orig);
+		std::string mtype = content_type.substr(0, 6);
+		bool new_file = this->m_key_orig != m_key_orig_stored;
+
+		// @m_key_orig contains filename for the new file, if we have another file currently being processed,
+		// its name is stored in @m_key_orig_stored
+		if (new_file && m_key_orig_stored.empty()) {
+			m_key_orig_stored = this->m_key_orig;
+		}
+
+		m_current_data = dp;
+		m_current_flags = flags;
+
+		if (mtype != "audio/" && mtype != "video/") {
+			continue_parent();
+
+			if (new_file) {
+				m_key_orig_stored = this->m_key_orig;
+			}
+			return;
+		}
+
+		elliptics::error_info err;
+		err = stream_parse(new_file);
+		if (err) {
+			NLOG_ERROR("on_upload_auth_media::on_chunk_raw: url: %s, key: %s, stream parsing error: %s [%d]",
+					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(),
+					err.message().c_str(), err.code());
+			this->send_reply(swarm::http_response::service_unavailable);
+			return;
+		}
+
+		if (new_file) {
+			m_key_orig_stored = this->m_key_orig;
+		}
+	}
+private:
+	std::string m_key_orig_stored; // currently processed audio/video file
+	std::unique_ptr<nulla::iso_stream_fallback_reader> m_iso_reader;
+	elliptics::data_pointer m_current_data;
+	unsigned int m_current_flags;
+
+	void continue_parent() {
+		on_upload_auth_base<Server, on_upload_auth_media<Server>>::on_chunk_raw(m_current_data, m_current_flags);
+	}
+
+	void continue_parent_wrapper(const elliptics::sync_write_result &result, const elliptics::error_info &error) {
+		if (error) {
+			NLOG_ERROR("on_upload_auth_media::continue_parent_wrapper: url: %s, key: %s, error: %s [%d]",
+					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(),
+					error.message().c_str(), error.code());
+			this->send_reply(swarm::http_response::service_unavailable);
+			return;
+		}
+
+		(void) result;
+
+		continue_parent();
+	}
+
+	void continue_parent_transcoding_wrapper(const std::string &output_file, const elliptics::error_info &error) {
+		if (error) {
+			NLOG_ERROR("on_upload_auth_media::continue_parent_transcoding_wrapper: url: %s, key: %s, error: %s [%d]",
+					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(),
+					error.message().c_str(), error.code());
+			this->send_reply(swarm::http_response::service_unavailable);
+			return;
+		}
+
+		continue_parent();
+	}
+
+	elliptics::error_info stream_parse(bool new_file) {
+		try {
+			if (new_file) {
+				if (m_iso_reader) {
+					store_metadata();
+				}
+
+				m_iso_reader.reset(new nulla::iso_stream_fallback_reader(this->server()->tmp_dir(),
+							m_current_data.data<char>(), m_current_data.size()));
+				m_iso_reader->do_not_remove();
+			} else {
+				m_iso_reader->feed(m_current_data.data<char>(), m_current_data.size());
+			}
+
+			// if it is the last chunk, store media metadata and postpone higher layer invocation,
+			// if it is not the last chunk, just call the upper layer which will store data into elliptics
+			if (m_current_flags & thevoid::buffered_request_stream<Server>::last_chunk) {
+				store_metadata();
+
+			} else {
+				continue_parent();
+			}
+
+		} catch (const std::exception &e) {
+			NLOG_ERROR("on_upload_auth_media::stream_parse: url: %s, key: %s, error: %s",
+					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(), e.what());
+			return elliptics::create_error(-EINVAL, "stream_parse: key: %s, error: %s", this->m_key_orig.c_str(), e.what());
+		}
+
+		return elliptics::error_info();
+	}
+
+	void store_metadata_elliptics(const std::string &meta) {
+		elliptics::async_write_result result = this->m_session->write_data(nulla::metadata_key(m_key_orig_stored), meta, 0);
+		result.connect(std::bind(&on_upload_auth_media<Server>::continue_parent_wrapper,
+					this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+	}
+
+	void store_metadata() {
+		std::string meta;
+
+		try {
+			meta = m_iso_reader->pack();
+			const nulla::media &media = m_iso_reader->get_media();
+
+			NLOG_INFO("on_upload_auth_media::store_metadata: file: %s, metadata-size: %ld, tracks: %ld",
+					m_key_orig_stored.c_str(), meta.size(), media.tracks.size());
+
+			size_t idx = 0;
+			for (auto it = media.tracks.begin(), it_end = media.tracks.end(); it != it_end; ++it) {
+				NLOG_INFO("on_upload_auth_media::store_metadata: file: %s, track: %ld/%ld: %s",
+						m_key_orig_stored.c_str(), idx, media.tracks.size(),
+						it->str().c_str());
+
+				++idx;
+			}
+		} catch (const std::exception &e) {
+			NLOG_ERROR("on_upload_auth_media::store_metadata: url: %s, key: %s, "
+					"tmp_file: %s, error: %s",
+					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(),
+					m_iso_reader->tmp_file().c_str(), e.what());
+		}
+
+		if (meta.empty()) {
+			schedule_transcoding(m_iso_reader->tmp_file());
+		} else {
+			store_metadata_elliptics(meta);
+		}
+	}
+
+	void schedule_transcoding(const std::string &input_file) {
+		NLOG_ERROR("on_upload_auth_media::schedule_transcoding: url: %s, key: %s, input_file: %s",
+				this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(), input_file.c_str());
+
+		this->server()->schedule_transcoding(input_file,
+				std::bind(&on_upload_auth_media<Server>::continue_parent_transcoding_wrapper,
+					this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+	}
 };
 
 }} // namespace ioremap::nullx

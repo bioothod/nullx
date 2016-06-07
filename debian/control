@@ -12,6 +12,7 @@ Build-Depends:
  libboost-filesystem-dev,
  elliptics-dev,
  elliptics-client,
+ nulla-dev,
  libcrypto++-dev,
  libmsgpack-dev,
  libswarm3-dev,
