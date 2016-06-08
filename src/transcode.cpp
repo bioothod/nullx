@@ -132,13 +132,13 @@ int transcoder::open_output_file(const std::string &filename)
 		if (dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO || dec_ctx->codec_type == AVMEDIA_TYPE_AUDIO) {
 			AVCodecID codec;
 
+			// we transcode into h264/aac, since it is the only stable combination supported by HLS players
 			if (dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
 				codec = AV_CODEC_ID_H264;
 			} else {
 				codec = AV_CODEC_ID_AAC;
 			}
 
-			/* in this example, we choose transcoding to same codec */
 			encoder = avcodec_find_encoder(codec);
 			if (!encoder) {
 				LOG(ERROR) << filename << ": could not find codec " << codec;
@@ -172,7 +172,6 @@ int transcoder::open_output_file(const std::string &filename)
 			enc_ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
 
 
-			/* Third parameter can be used to pass settings to encoder */
 			err = avcodec_open2(enc_ctx, encoder, NULL);
 			if (err < 0) {
 				LOG(ERROR) << filename << ": could not open encoder for stream #" << i;
@@ -591,8 +590,6 @@ int transcoder::init_output_audio_frame(AVFrame **frame, AVCodecContext *output_
 	 * Set the frame's parameters, especially its size and format.
 	 * av_frame_get_buffer needs this to allocate memory for the
 	 * audio samples of the frame.
-	 * Default channel layouts based on the number of channels
-	 * are assumed for simplicity.
 	 */
 	(*frame)->nb_samples     = frame_size;
 	(*frame)->channel_layout = output_codec_context->channel_layout;
