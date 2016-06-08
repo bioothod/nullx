@@ -62,8 +62,9 @@ private:
 	int encode_write_frame(AVFrame *filt_frame, unsigned int stream_index, int *got_frame);
 	int process_frames();
 
+	int flush_fifo(unsigned int stream_index, int final);
 	int flush_encoder(unsigned int stream_index);
-	int flush_filters();
+	int flush_output();
 	int finish();
 };
 

@@ -745,21 +745,8 @@ cleanup:
 		", fifo_size: " << av_audio_fifo_size(fifo)
 		;
 
-	while (av_audio_fifo_size(fifo) >= output_codec_context->frame_size) {
-		AVFrame *tmp_frame;
-		err = read_frame_from_fifo(fifo, output_codec_context, &tmp_frame);
-		if (err) {
-			return err;
-		}
 
-		err = filter_encode_write_frame(tmp_frame, stream_index);
-		av_frame_free(&tmp_frame);
-		if (err) {
-			return err;
-		}
-	}
-
-	return 0;
+	return flush_fifo(stream_index, 0);
 }
 
 int transcoder::process_frames()
@@ -775,14 +762,20 @@ int transcoder::process_frames()
 	memset(&packet, 0, sizeof(packet));
 	av_init_packet(&packet);
 
-	while (true) {
+	bool need_exit = false;
+
+	while (!need_exit) {
 		err = av_read_frame(m_ifmt_ctx, &packet);
 		if (err < 0) {
-			if (err == AVERROR_EOF) {
-				err = 0;
+			need_exit = true;
+
+			if (err != AVERROR_EOF) {
+				break;
 			}
 
-			break;
+			// we have to run decoding cycle once again
+			// just in case there are cached samples which have not yet been written
+			err = 0;
 		}
 
 		stream_index = packet.stream_index;
@@ -845,6 +838,31 @@ int transcoder::process_frames()
 	return err;
 }
 
+int transcoder::flush_fifo(unsigned int stream_index, int final)
+{
+	AVStream *output_stream = m_ofmt_ctx->streams[stream_index];
+	AVCodecContext *output_codec_context = output_stream->codec;
+	filtering_context *filter_ctx = &m_filter_ctx[stream_index];
+	AVAudioFifo *fifo = filter_ctx->fifo;
+	int err;
+
+	while (av_audio_fifo_size(fifo) >= output_codec_context->frame_size || (final && av_audio_fifo_size(fifo) > 0)) {
+		AVFrame *tmp_frame;
+		err = read_frame_from_fifo(fifo, output_codec_context, &tmp_frame);
+		if (err) {
+			return err;
+		}
+
+		err = filter_encode_write_frame(tmp_frame, stream_index);
+		av_frame_free(&tmp_frame);
+		if (err) {
+			return err;
+		}
+	}
+
+	return 0;
+}
+
 int transcoder::flush_encoder(unsigned int stream_index)
 {
 	int err;
@@ -866,11 +884,15 @@ int transcoder::flush_encoder(unsigned int stream_index)
 	return err;
 }
 
-int transcoder::flush_filters()
+int transcoder::flush_output()
 {
 	int err;
 
 	for (unsigned int i = 0; i < m_ifmt_ctx->nb_streams; i++) {
+		err = flush_fifo(i, 1);
+		if (err)
+			return err;
+
 		/* flush filter */
 		if (!m_filter_ctx[i].filter_graph)
 			continue;
@@ -895,7 +917,8 @@ int transcoder::flush_filters()
 int transcoder::finish()
 {
 	int err;
-	err = flush_filters();
+
+	err = flush_output();
 	if (err < 0) {
 		return err;
 	}
