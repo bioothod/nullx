@@ -66,6 +66,11 @@ int transcoder::transcode(const std::string &input_file, const std::string &outp
 	return 0;
 }
 
+char *transcoder::error_string(int err)
+{
+	return av_make_error_string(m_errstr, sizeof(m_errstr), err);
+}
+
 int transcoder::open_input_file(const std::string &filename)
 {
 	int err;
@@ -128,15 +133,28 @@ int transcoder::open_output_file(const std::string &filename)
 		in_stream = m_ifmt_ctx->streams[i];
 		dec_ctx = in_stream->codec;
 		enc_ctx = out_stream->codec;
-
-		if (dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO || dec_ctx->codec_type == AVMEDIA_TYPE_AUDIO) {
+#if 0
+		out_stream->time_base.den = dec_ctx->sample_rate;
+		out_stream->time_base.num = 1;
+#endif
+		if (dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO ||
+				dec_ctx->codec_type == AVMEDIA_TYPE_AUDIO ||
+				dec_ctx->codec_type == AVMEDIA_TYPE_SUBTITLE) {
 			AVCodecID codec;
 
 			// we transcode into h264/aac, since it is the only stable combination supported by HLS players
-			if (dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
+			switch (dec_ctx->codec_type) {
+			case AVMEDIA_TYPE_VIDEO:
 				codec = AV_CODEC_ID_H264;
-			} else {
+				break;
+			case AVMEDIA_TYPE_AUDIO:
 				codec = AV_CODEC_ID_AAC;
+				break;
+			case AVMEDIA_TYPE_SUBTITLE:
+				codec = AV_CODEC_ID_MOV_TEXT;
+				break;
+			default:
+				break;
 			}
 
 			encoder = avcodec_find_encoder(codec);
@@ -145,7 +163,19 @@ int transcoder::open_output_file(const std::string &filename)
 				return AVERROR_INVALIDDATA;
 			}
 
-			if (dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
+			err = avcodec_get_context_defaults3(enc_ctx, encoder);
+			if (err < 0) {
+				LOG(ERROR) << filename << ": could not get context defaults: " << error_string(err);
+				return err;
+			}
+
+			switch (dec_ctx->codec_type) {
+			case AVMEDIA_TYPE_VIDEO:
+				enc_ctx->gop_size = 10;
+				enc_ctx->max_b_frames = 1;
+
+				av_opt_set(enc_ctx->priv_data, "preset", "slow", 0);
+				av_opt_set(enc_ctx->priv_data, "profile", "high", 0);
 				enc_ctx->height = dec_ctx->height;
 				enc_ctx->width = dec_ctx->width;
 				enc_ctx->sample_aspect_ratio = dec_ctx->sample_aspect_ratio;
@@ -153,17 +183,29 @@ int transcoder::open_output_file(const std::string &filename)
 				enc_ctx->pix_fmt = encoder->pix_fmts[0];
 				/* video time_base can be set to whatever is handy and supported by encoder */
 				enc_ctx->time_base = dec_ctx->time_base;
-			} else {
+				break;
+			case AVMEDIA_TYPE_AUDIO:
 				enc_ctx->sample_rate = dec_ctx->sample_rate;
 				enc_ctx->channel_layout = dec_ctx->channel_layout;
 				enc_ctx->channels = av_get_channel_layout_nb_channels(enc_ctx->channel_layout);
 				/* take first format from list of supported formats */
 				enc_ctx->sample_fmt = encoder->sample_fmts[0];
 				enc_ctx->time_base = (AVRational){1, enc_ctx->sample_rate};
+				break;
+			case AVMEDIA_TYPE_SUBTITLE:
+				enc_ctx->subtitle_header = (uint8_t *)av_malloc(dec_ctx->subtitle_header_size + 1);
+				if (!enc_ctx->subtitle_header) {
+					err = -ENOMEM;
+					return err;
+				}
+				memcpy(enc_ctx->subtitle_header, dec_ctx->subtitle_header, dec_ctx->subtitle_header_size + 1);
+				enc_ctx->subtitle_header_size = dec_ctx->subtitle_header_size;
+				enc_ctx->sample_rate = dec_ctx->sample_rate;
+				enc_ctx->time_base = dec_ctx->time_base;
+				break;
+			default:
+				break;
 			}
-
-			out_stream->time_base.den = dec_ctx->sample_rate;
-			out_stream->time_base.num = 1;
 
 			if (m_ofmt_ctx->oformat->flags & AVFMT_GLOBALHEADER)
 				enc_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
@@ -174,7 +216,7 @@ int transcoder::open_output_file(const std::string &filename)
 
 			err = avcodec_open2(enc_ctx, encoder, NULL);
 			if (err < 0) {
-				LOG(ERROR) << filename << ": could not open encoder for stream #" << i;
+				LOG(ERROR) << filename << ": could not open encoder for stream #" << i << ": " << error_string(err);
 				return err;
 			}
 		} else if (dec_ctx->codec_type == AVMEDIA_TYPE_UNKNOWN) {
@@ -182,9 +224,9 @@ int transcoder::open_output_file(const std::string &filename)
 			return AVERROR_INVALIDDATA;
 		} else {
 			/* if this stream must be remuxed */
-			err = avcodec_copy_context(m_ofmt_ctx->streams[i]->codec, m_ifmt_ctx->streams[i]->codec);
+			err = avcodec_copy_context(enc_ctx, dec_ctx);
 			if (err < 0) {
-				LOG(ERROR) << filename << ": could not copy steam #" << i << " context";
+				LOG(ERROR) << filename << ": could not copy steam #" << i << " context: " << error_string(err);
 				return err;
 			}
 		}
@@ -363,7 +405,7 @@ int transcoder::init_video_filter(AVCodecContext *dec_ctx, AVCodecContext *enc_c
 		return err;
 	}
 
-	err = av_opt_set_bin(buffersink_ctx, "pix_fmts",
+	err = av_opt_set_bin(*buffersink_ctx, "pix_fmts",
 			(uint8_t*)&enc_ctx->pix_fmt, sizeof(enc_ctx->pix_fmt),
 			AV_OPT_SEARCH_CHILDREN);
 	if (err < 0) {
@@ -465,7 +507,7 @@ int transcoder::init_filters(void)
 
 		if (m_ifmt_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
 			filter_spec = "null"; /* passthrough (dummy) filter for video */
-		} else {
+		} else if (m_ifmt_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
 			filter_spec = "anull"; /* passthrough (dummy) filter for audio */
 		}
 
@@ -502,7 +544,7 @@ int transcoder::encode_write_frame(AVFrame *filt_frame, unsigned int stream_inde
 
 	err = enc_func(output_codec, &enc_pkt, filt_frame, got_frame);
 	if (filt_frame) {
-		LOG(INFO) << "encoding" <<
+		VLOG(1) << "encoding" <<
 			": type: " << ((input_codec->codec_type == AVMEDIA_TYPE_VIDEO) ? "video" : "audio") <<
 			", samples: " << filt_frame->nb_samples <<
 			", input_codec_frame_size: " << input_codec->frame_size <<
@@ -736,7 +778,7 @@ cleanup:
 	if (err)
 		return err;
 
-	LOG(INFO) << "audio" <<
+	VLOG(1) << "audio" <<
 		": samples: " << frame->nb_samples <<
 		", output_codec_frame_size: " << output_codec_context->frame_size <<
 		", fifo_size: " << av_audio_fifo_size(fifo)
@@ -842,6 +884,9 @@ int transcoder::flush_fifo(unsigned int stream_index, int final)
 	filtering_context *filter_ctx = &m_filter_ctx[stream_index];
 	AVAudioFifo *fifo = filter_ctx->fifo;
 	int err;
+
+	if (!fifo)
+		return 0;
 
 	while (av_audio_fifo_size(fifo) >= output_codec_context->frame_size || (final && av_audio_fifo_size(fifo) > 0)) {
 		AVFrame *tmp_frame;
