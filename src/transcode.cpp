@@ -94,7 +94,7 @@ int transcoder::open_input_file(const std::string &filename)
 		codec_ctx = stream->codec;
 
 		/* Reencode video & audio and remux subtitles etc. */
-		if (codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO	|| codec_ctx->codec_type == AVMEDIA_TYPE_AUDIO) {
+		if (codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO	|| codec_ctx->codec_type == AVMEDIA_TYPE_AUDIO || codec_ctx->codec_type == AVMEDIA_TYPE_SUBTITLE) {
 			/* Open decoder */
 			err = avcodec_open2(codec_ctx, avcodec_find_decoder(codec_ctx->codec_id), NULL);
 			if (err < 0) {
@@ -682,9 +682,6 @@ int transcoder::read_frame_from_fifo(AVAudioFifo *fifo,
 		return AVERROR_EXIT;
 	}
 
-	output_frame->pts = pts;
-	pts += frame_size;
-
 	*frame_ptr = output_frame;
 	return 0;
 }
@@ -803,6 +800,9 @@ int transcoder::process_frames()
 
 	bool need_exit = false;
 
+	std::vector<uint8_t> subtitle;
+	subtitle.resize(1024 * 1024);
+
 	while (!need_exit) {
 		err = av_read_frame(m_ifmt_ctx, &packet);
 		if (err < 0) {
@@ -825,7 +825,69 @@ int transcoder::process_frames()
 		AVCodecContext *input_codec_context = input_stream->codec;
 		AVCodecContext *output_codec_context = output_stream->codec;
 
-		if (m_filter_ctx[stream_index].filter_graph) {
+		filtering_context *fctx = &m_filter_ctx[stream_index];
+
+		if (input_codec_context->codec_type == AVMEDIA_TYPE_SUBTITLE) {
+			AVSubtitle sub;
+			memset(&sub, 0, sizeof(sub));
+
+			err = avcodec_decode_subtitle2(input_codec_context, &sub, &got_frame, &packet);
+			if (err < 0) {
+				LOG(ERROR) << "could not decode subtitle: " << error_string(err);
+				break;
+			}
+
+			if (got_frame) {
+				sub.pts = av_rescale_q(packet.pts, input_stream->time_base, AV_TIME_BASE_Q);
+				sub.pts += av_rescale_q(sub.start_display_time, (AVRational){1, 1000}, AV_TIME_BASE_Q);
+				sub.end_display_time -= sub.start_display_time;
+				sub.start_display_time = 0;
+
+				err = avcodec_encode_subtitle(output_codec_context, (uint8_t *)subtitle.data(), subtitle.size(), &sub);
+				if (err < 0) {
+					LOG(ERROR) << "could not encode subtitle: " << error_string(err);
+					avsubtitle_free(&sub);
+					break;
+				}
+
+
+				AVPacket pkt;
+				av_init_packet(&pkt);
+				pkt.stream_index = stream_index;
+				pkt.data = subtitle.data();
+				pkt.size = err;
+				pkt.pts = av_rescale_q(sub.pts, AV_TIME_BASE_Q, output_stream->time_base);
+				pkt.duration = av_rescale_q(av_rescale_q(sub.end_display_time, (AVRational){1, 1000}, AV_TIME_BASE_Q), AV_TIME_BASE_Q, output_stream->time_base);
+				pkt.dts = pkt.pts;
+				pkt.flags = packet.flags;
+
+				VLOG(1) << "subtitles: " << (char *)pkt.data << ", size: " << pkt.size <<
+					", orig_pts: " << packet.pts <<
+					", orig_duration: " << packet.duration <<
+					", orig_flags: " << packet.flags <<
+					", orig_pos: " << packet.pos <<
+					", sub.pts: " << sub.pts <<
+					", sub.start_display_time: " << sub.start_display_time <<
+					", sub.end_display_time: " << sub.end_display_time <<
+					", pts: " << pkt.pts <<
+					", dts: " << pkt.dts <<
+					", duration: " << pkt.duration <<
+					", side_data: " << pkt.side_data <<
+					", side_data_elems: " << pkt.side_data_elems <<
+					", flags: " << pkt.flags <<
+					", pos: " << pkt.pos;
+
+
+				err = av_interleaved_write_frame(m_ofmt_ctx, &pkt);
+				if (err < 0) {
+					LOG(ERROR) << "could not write subtitle: " << error_string(err);
+					avsubtitle_free(&sub);
+					break;
+				}
+			}
+
+			avsubtitle_free(&sub);
+		} else if (fctx->filter_graph) {
 			frame = av_frame_alloc();
 			if (!frame) {
 				err = AVERROR(ENOMEM);
@@ -862,6 +924,15 @@ int transcoder::process_frames()
 			/* remux this frame without reencoding */
 			av_packet_rescale_ts(&packet, input_stream->time_base, input_stream->time_base);
 
+			VLOG(1) << "frame: " << (char *)packet.data << ", size: " << packet.size  <<
+				", pts: " << packet.pts <<
+				", dts: " << packet.dts <<
+				", duration: " << packet.duration <<
+				", side_data: " << packet.side_data <<
+				", side_data_elems: " << packet.side_data_elems <<
+				", flags: " << packet.flags
+				;
+
 			err = av_interleaved_write_frame(m_ofmt_ctx, &packet);
 			if (err < 0) {
 				LOG(ERROR) << "could not write interleaved frame without reencoding: " << err;
@@ -894,6 +965,10 @@ int transcoder::flush_fifo(unsigned int stream_index, int final)
 		if (err) {
 			return err;
 		}
+
+		tmp_frame->pts = filter_ctx->pts;
+		filter_ctx->pts += tmp_frame->nb_samples;
+
 
 		err = filter_encode_write_frame(tmp_frame, stream_index);
 		av_frame_free(&tmp_frame);

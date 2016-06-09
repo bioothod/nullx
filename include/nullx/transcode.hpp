@@ -29,11 +29,10 @@ private:
 		AVFilterContext *buffersrc_ctx = NULL;
 		AVFilterGraph *filter_graph = NULL;
 
+		uint64_t pts = 0;
 		SwrContext *resample_ctx = NULL;
 		AVAudioFifo *fifo;
 	} *m_filter_ctx = NULL;
-
-	uint64_t pts = 0;
 
 	char m_errstr[AV_ERROR_MAX_STRING_SIZE];
 	char *error_string(int err);
