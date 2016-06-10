@@ -77,13 +77,13 @@ int transcoder::open_input_file(const std::string &filename)
 
 	err = avformat_open_input(&m_ifmt_ctx, filename.c_str(), NULL, NULL);
 	if (err < 0) {
-		LOG(ERROR) << filename << ": could not open input file";
+		LOG(ERROR) << filename << ": could not open input file: " << error_string(err);
 		return err;
 	}
 
 	err = avformat_find_stream_info(m_ifmt_ctx, NULL);
 	if (err < 0) {
-		LOG(ERROR) << filename  << ": could not find stream information";
+		LOG(ERROR) << filename  << ": could not find stream information: " << error_string(err);
 		return err;
 	}
 
@@ -94,11 +94,13 @@ int transcoder::open_input_file(const std::string &filename)
 		codec_ctx = stream->codec;
 
 		/* Reencode video & audio and remux subtitles etc. */
-		if (codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO	|| codec_ctx->codec_type == AVMEDIA_TYPE_AUDIO || codec_ctx->codec_type == AVMEDIA_TYPE_SUBTITLE) {
+		if (codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO	||
+				codec_ctx->codec_type == AVMEDIA_TYPE_AUDIO ||
+				codec_ctx->codec_type == AVMEDIA_TYPE_SUBTITLE) {
 			/* Open decoder */
 			err = avcodec_open2(codec_ctx, avcodec_find_decoder(codec_ctx->codec_id), NULL);
 			if (err < 0) {
-				LOG(ERROR) << filename  << ": could not find decoder for stream #" << i;
+				LOG(ERROR) << filename  << ": could not find decoder for stream #" << i << ": " << error_string(err);
 				return err;
 			}
 		}
