@@ -593,12 +593,13 @@ private:
 	std::unique_ptr<nulla::iso_stream_fallback_reader> m_iso_reader;
 	elliptics::data_pointer m_current_data;
 	unsigned int m_current_flags;
+	elliptics::sync_write_result m_transcoded_data_result;
 
 	void continue_parent() {
 		on_upload_auth_base<Server, on_upload_auth_media<Server>>::on_chunk_raw(m_current_data, m_current_flags);
 	}
 
-	void continue_parent_wrapper(const elliptics::sync_write_result &result, const elliptics::error_info &error) {
+	void continue_parent_wrapper(const elliptics::sync_write_result &meta_result, const elliptics::error_info &error) {
 		if (error) {
 			NLOG_ERROR("on_upload_auth_media::continue_parent_wrapper: url: %s, key: %s, error: %s [%d]",
 					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(),
@@ -607,12 +608,136 @@ private:
 			return;
 		}
 
-		(void) result;
+		(void) meta_result;
 
-		continue_parent();
+		NLOG_ERROR("on_upload_auth_media::continue_parent_wrapper: url: %s, key: %s, is_streaming: %d",
+					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(),
+					m_iso_reader->is_streaming());
+
+		if (m_iso_reader->is_streaming()) {
+			continue_parent();
+		} else {
+			this->on_write_finished(m_transcoded_data_result, error);
+		}
 	}
 
-	void continue_parent_transcoding_wrapper(const std::string &output_file, const elliptics::error_info &error) {
+	void store_metadata_elliptics(const std::string &meta) {
+		this->m_session->write_data(nulla::metadata_key(this->set_key(m_key_orig_stored)), meta, 0).connect(
+				std::bind(&on_upload_auth_media<Server>::continue_parent_wrapper,
+					this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+	}
+
+	void dump_meta_info(const std::string &key, const std::string &file, const std::string &meta, const nulla::media &media) {
+		NLOG_INFO("on_upload_auth_media::dump_meta_info: key: %s, file: %s, metadata-size: %ld, tracks: %ld",
+				key.c_str(), file.c_str(), meta.size(), media.tracks.size());
+
+		size_t idx = 0;
+		for (auto it = media.tracks.begin(), it_end = media.tracks.end(); it != it_end; ++it) {
+			NLOG_INFO("on_upload_auth_media::dump_meta_info: key: %s, file: %s, track: %ld/%ld: %s",
+					key.c_str(), file.c_str(), idx, media.tracks.size(), it->str().c_str());
+
+			++idx;
+		}
+	}
+
+	void upload_local_file(const std::string &file, const std::string &key) {
+		elliptics::key id(this->set_key(key));
+
+		this->m_session->transform(id);
+
+		int err;
+
+		int fd = open(file.c_str(), O_RDONLY | O_LARGEFILE | O_CLOEXEC);
+		if (fd < 0) {
+			err = -errno;
+
+			NLOG_ERROR("on_upload_auth_media::upload_local_file: url: %s, key: %s, "
+					"local_file: %s: can not open local file: [%s] %d",
+					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(), file.c_str(),
+					strerror(-err), err);
+			this->send_reply(swarm::http_response::service_unavailable);
+			return;
+		}
+
+		struct stat stat;
+		memset(&stat, 0, sizeof(stat));
+
+		err = fstat(fd, &stat);
+		if (err) {
+			err = -errno;
+			NLOG_ERROR("on_upload_auth_media::upload_local_file: url: %s, key: %s, "
+					"local_file: %s: can not stat local file: [%s] %d",
+					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(), file.c_str(),
+					strerror(-err), err);
+			close(fd);
+			this->send_reply(swarm::http_response::service_unavailable);
+			return;
+		}
+
+		dnet_io_control ctl;
+		memset(&ctl, 0, sizeof(struct dnet_io_control));
+
+		ctl.data = NULL;
+		ctl.fd = fd;
+		ctl.local_offset = 0;
+
+		memcpy(ctl.io.id, id.id().id, DNET_ID_SIZE);
+		memcpy(ctl.io.parent, id.id().id, DNET_ID_SIZE);
+
+		ctl.io.size = stat.st_size;
+		ctl.io.offset = 0;
+		ctl.io.timestamp.tsec = stat.st_mtime;
+		ctl.io.timestamp.tnsec = 0;
+		ctl.id = id.id();
+
+		this->m_session->write_data(ctl).connect(std::bind(&on_upload_auth_media<Server>::file_uploaded_store_metadata,
+				this->shared_from_this(), file, fd, std::placeholders::_1, std::placeholders::_2));
+
+	}
+
+	void file_uploaded_store_metadata(std::string &output_file, int fd,
+			const elliptics::sync_write_result &result, const elliptics::error_info &error) {
+		if (error) {
+			NLOG_ERROR("on_upload_auth_media::file_uploaded_store_metadata: url: %s, key: %s, error: %s [%d]",
+					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(),
+					error.message().c_str(), error.code());
+			this->send_reply(swarm::http_response::service_unavailable);
+			return;
+		}
+
+		m_transcoded_data_result = result;
+
+		// XXX remove output file
+		close(fd);
+
+		try {
+			std::string meta;
+			nulla::iso_reader reader(output_file.c_str());
+			reader.parse();
+
+			meta = reader.pack();
+			const nulla::media &media = reader.get_media();
+
+			// this should not happen
+			if (meta.empty()) {
+				throw std::runtime_error("empty metadata file");
+			}
+
+			dump_meta_info(m_key_orig_stored, output_file, meta, media);
+			store_metadata_elliptics(meta);
+		} catch (const std::exception &e) {
+			NLOG_ERROR("on_upload_auth_media::continue_parent_transcoding_wrapper: url: %s, key: %s, "
+					"could not parse ISO file %s: %s",
+					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(),
+					output_file.c_str(), e.what());
+
+			this->send_reply(swarm::http_response::service_unavailable);
+			return;
+		}
+	}
+
+	void continue_parent_transcoding_wrapper(const std::string &input_file,
+			const std::string &output_file, const elliptics::error_info &error) {
 		if (error) {
 			NLOG_ERROR("on_upload_auth_media::continue_parent_transcoding_wrapper: url: %s, key: %s, error: %s [%d]",
 					this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(),
@@ -621,14 +746,20 @@ private:
 			return;
 		}
 
-		continue_parent();
+		NLOG_INFO("on_upload_auth_media::continue_parent_transcoding_wrapper: url: %s, key: %s, local file: %s -> %s",
+					this->request().url().to_human_readable().c_str(),
+					this->m_key_orig.c_str(),
+					input_file.c_str(), output_file.c_str());
+
+		remove(input_file.c_str());
+		upload_local_file(output_file, this->m_key_orig);
 	}
 
 	elliptics::error_info stream_parse(bool new_file) {
 		try {
 			if (new_file) {
 				if (m_iso_reader) {
-					store_metadata();
+					store_metadata_or_transcode(m_iso_reader->is_streaming());
 				}
 
 				m_iso_reader.reset(new nulla::iso_stream_fallback_reader(this->server()->tmp_dir(),
@@ -641,10 +772,23 @@ private:
 			// if it is the last chunk, store media metadata and postpone higher layer invocation,
 			// if it is not the last chunk, just call the upper layer which will store data into elliptics
 			if (m_current_flags & thevoid::buffered_request_stream<Server>::last_chunk) {
-				store_metadata();
-
+				// If this is ISO file, then we have already uploaded its content into the storage
+				//
+				// If this file is either not ISO and has to be transcoded,
+				// or it is not very suitable for streaming (but still ISO format),
+				// which is ok for Nulla stream server
+				// in this case we just have to upload it and then store metadata
+				store_metadata_or_transcode(m_iso_reader->is_streaming());
 			} else {
-				continue_parent();
+				if (m_iso_reader->is_streaming()) {
+					continue_parent();
+				} else {
+					// we do not upload file if it failed to read its metadata,
+					// since it will be transcoded later and if transcoding fails,
+					// we do not want this file in the storage. If transcoding will succeed,
+					// file will be uploaded but with different name.
+					this->try_next_chunk();
+				}
 			}
 
 		} catch (const std::exception &e) {
@@ -656,30 +800,14 @@ private:
 		return elliptics::error_info();
 	}
 
-	void store_metadata_elliptics(const std::string &meta) {
-		elliptics::async_write_result result = this->m_session->write_data(nulla::metadata_key(m_key_orig_stored), meta, 0);
-		result.connect(std::bind(&on_upload_auth_media<Server>::continue_parent_wrapper,
-					this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
-	}
-
-	void store_metadata() {
+	void store_metadata_or_transcode(bool is_streaming) {
 		std::string meta;
 
 		try {
 			meta = m_iso_reader->pack();
 			const nulla::media &media = m_iso_reader->get_media();
 
-			NLOG_INFO("on_upload_auth_media::store_metadata: file: %s, metadata-size: %ld, tracks: %ld",
-					m_key_orig_stored.c_str(), meta.size(), media.tracks.size());
-
-			size_t idx = 0;
-			for (auto it = media.tracks.begin(), it_end = media.tracks.end(); it != it_end; ++it) {
-				NLOG_INFO("on_upload_auth_media::store_metadata: file: %s, track: %ld/%ld: %s",
-						m_key_orig_stored.c_str(), idx, media.tracks.size(),
-						it->str().c_str());
-
-				++idx;
-			}
+			dump_meta_info(m_key_orig_stored, is_streaming ? "streaming" : m_iso_reader->tmp_file(), meta, media);
 		} catch (const std::exception &e) {
 			NLOG_ERROR("on_upload_auth_media::store_metadata: url: %s, key: %s, "
 					"tmp_file: %s, error: %s",
@@ -690,17 +818,22 @@ private:
 		if (meta.empty()) {
 			schedule_transcoding(m_iso_reader->tmp_file());
 		} else {
-			store_metadata_elliptics(meta);
+			if (is_streaming) {
+				store_metadata_elliptics(meta);
+			} else {
+				upload_local_file(m_iso_reader->tmp_file(), m_key_orig_stored);
+			}
 		}
 	}
 
 	void schedule_transcoding(const std::string &input_file) {
-		NLOG_ERROR("on_upload_auth_media::schedule_transcoding: url: %s, key: %s, input_file: %s",
+		NLOG_INFO("on_upload_auth_media::schedule_transcoding: url: %s, key: %s, input_file: %s",
 				this->request().url().to_human_readable().c_str(), this->m_key_orig.c_str(), input_file.c_str());
 
 		this->server()->schedule_transcoding(input_file,
 				std::bind(&on_upload_auth_media<Server>::continue_parent_transcoding_wrapper,
-					this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+					this->shared_from_this(), input_file,
+					std::placeholders::_1, std::placeholders::_2));
 	}
 };
 
