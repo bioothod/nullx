@@ -74,6 +74,8 @@ class transcode_controller {
 public:
 	transcode_controller(int num_workers);
 
+	void schedule(const ribosome::fpool::message &msg, const ribosome::fpool::worker::completion_t &completion);
+
 private:
 	ribosome::fpool::controller m_ctl;
 

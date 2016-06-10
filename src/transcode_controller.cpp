@@ -7,6 +7,11 @@ transcode_controller::transcode_controller(int num_workers):
 {
 }
 
+void transcode_controller::schedule(const ribosome::fpool::message &msg, const ribosome::fpool::worker::completion_t &completion)
+{
+	m_ctl.schedule(msg, completion);
+}
+
 ribosome::fpool::message transcode_controller::transcode(const ribosome::fpool::message &msg)
 {
 	std::string input_file(msg.data.get(), msg.header.size);
@@ -24,6 +29,7 @@ ribosome::fpool::message transcode_controller::transcode(const ribosome::fpool::
 	reply.header = msg.header;
 	reply.header.size = output_file.size();
 	reply.header.status = 0;
+	memcpy(reply.data.get(), output_file.data(), output_file.size());
 
 	return reply;
 }
