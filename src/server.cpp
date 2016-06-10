@@ -160,6 +160,10 @@ public:
 
 	typedef std::function<void (const std::string &output_file, const elliptics::error_info &error)> transcoding_completion_t;
 	void schedule_transcoding(const std::string &input_file, transcoding_completion_t completion) {
+		ribosome::fpool::message msg(input_file.size());
+		memcpy(msg.data.get(), input_file.data(), input_file.size());
+		m_transcode_ctl->schedule(msg, std::bind(&nullx_server::transcode_completion, this,
+					input_file, completion, std::placeholders::_1));
 	}
 
 private:
@@ -352,6 +356,26 @@ private:
 		m_transcode_ctl.reset(new nullx::transcode_controller(num_workers));
 		return true;
 	}
+
+	void transcode_completion(const std::string &input_file, transcoding_completion_t completion,
+			const ribosome::fpool::message &reply) {
+		if (reply.header.status) {
+			std::string output_file;
+			elliptics::error_info err = elliptics::create_error(reply.header.status,
+					"failed to transcode file %s", input_file.c_str());
+			NLOG_ERROR("transcoding failed: file: %s, reply: %s",
+				input_file.c_str(), reply.str().c_str());
+
+			completion(output_file, err);
+			return;
+		}
+
+		std::string output_file(reply.data.get(), reply.header.size);
+		NLOG_INFO("transcoding completed: file: %s -> %s, reply: %s",
+				input_file.c_str(), output_file.c_str(), reply.str().c_str());
+		completion(output_file, elliptics::error_info());
+	}
+
 };
 
 int main(int argc, char **argv)
@@ -360,6 +384,9 @@ int main(int argc, char **argv)
 		std::cerr << "Usage: " << argv[0] << " --config <config file>" << std::endl;
 		return -1;
 	}
+
+	av_register_all();
+	avfilter_register_all();
 
 	thevoid::register_signal_handler(SIGINT, thevoid::handle_stop_signal);
 	thevoid::register_signal_handler(SIGTERM, thevoid::handle_stop_signal);
@@ -376,4 +403,3 @@ int main(int argc, char **argv)
 
 	return err;
 }
-
