@@ -1,6 +1,9 @@
 # nullx
-Nullx is a web frontend server for Nulla Elliptics steaming engine
+Nullx is a transcoding server which converts input audio/video files (with multiple tracks) into h264/aac/mov_text format
+and optionally uploads resulted files into elliptics storage.
 
-It implements file upload, metadata generation, user authentication, static file hosting and other frontend features.
+Nullx spawns a pool of processes using `ribosome::fpool` each one transcodes media file using ffmpeg.
+If process crashes it will be automatically restarted.
 
-DASH/HLS streaming is implemented in Nulla service.
+Transcoding is asynchronous, server will reply to client after it is completed.
+If elliptics upload options are not specified in the request, server will send transcoded file to client in reply.

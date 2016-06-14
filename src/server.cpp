@@ -33,43 +33,9 @@ public:
 		if (!elliptics_init(config))
 			return false;
 
-		on<nullx::on_user_login<nullx_server>>(
-			options::prefix_match("/user_login"),
-			options::methods("POST", "PUT")
-		);
-		on<nullx::on_user_signup<nullx_server>>(
-			options::prefix_match("/user_signup"),
-			options::methods("POST", "PUT")
-		);
-		on<nullx::on_user_update<nullx_server>>(
-			options::prefix_match("/user_update"),
-			options::methods("POST", "PUT")
-		);
-
-
 		on<nullx::on_upload_auth_media<nullx_server>>(
-			options::prefix_match("/upload/"),
+			options::prefix_match("/transcode/"),
 			options::methods("POST", "PUT")
-		);
-		on<nullx::on_get_auth<nullx_server>>(
-			options::prefix_match("/get/"),
-			options::methods("GET")
-		);
-
-
-		on<nullx::on_index<nullx_server>>(
-			options::prefix_match("/index"),
-			options::methods("POST", "PUT")
-		);
-		on<nullx::on_list<nullx_server>>(
-			options::prefix_match("/list"),
-			options::methods("POST", "PUT")
-		);
-
-
-		on<nullx::on_static<nullx_server>>(
-			options::prefix_match("/"),
-			options::methods("GET")
 		);
 
 		return true;
@@ -81,77 +47,6 @@ public:
 
 	std::string meta_bucket() const {
 		return m_meta_bucket;
-	}
-
-	std::string domain() const {
-		return m_domain;
-	}
-
-	elliptics::error_info store_auth(const nullx::mailbox_t &mbox) {
-		std::unique_lock<std::mutex> guard(m_auth_lock);
-		m_mboxes.insert({mbox.cookie, mbox});
-		guard.unlock();
-
-		m_expire.insert(mbox.expires_at, [=] () {
-					std::lock_guard<std::mutex> guard(m_auth_lock);
-					m_mboxes.erase(mbox.cookie);
-				});
-		return elliptics::error_info();
-	}
-
-	bool check_cookie(const thevoid::http_request &req, nullx::mailbox_t &mbox) {
-		auto cookie = req.headers().get("Cookie");
-		if (!cookie)
-			return false;
-
-		std::vector<std::string> attrs;
-		boost::split(attrs, *cookie, boost::is_any_of(";"));
-		for (auto &attr: attrs) {
-			boost::trim(attr);
-			if (attr.size() <= 1)
-				continue;
-
-			auto eqpos = attr.find('=');
-			if (eqpos == std::string::npos)
-				continue;
-
-			if (attr.substr(0, eqpos) != nullx::cookie_prefix)
-				continue;
-
-			std::string cookie = attr.substr(eqpos+1);
-
-			std::lock_guard<std::mutex> guard(m_auth_lock);
-			auto it = m_mboxes.find(cookie);
-			if (it == m_mboxes.end())
-				continue;
-
-			if (std::chrono::system_clock::now() < it->second.expires_at) {
-				mbox = it->second;
-				return true;
-			}
-
-			continue;
-		}
-
-		return false;
-	}
-
-	void lock(const std::string &key) {
-		m_vlock.lock(key);
-	}
-	void unlock(const std::string &key) {
-		m_vlock.unlock(key);
-	}
-	bool try_lock(const std::string &key) {
-		return m_vlock.try_lock(key);
-	}
-
-	const std::string &static_root_dir() const {
-		return m_static_root_dir;
-	}
-
-	std::string content_type(const std::string &name) const {
-		return m_mime->find(name);
 	}
 
 	const std::string &tmp_dir() const {
@@ -169,23 +64,9 @@ public:
 private:
 	std::shared_ptr<elliptics::node> m_node;
 	std::unique_ptr<elliptics::session> m_session;
-	std::shared_ptr<ebucket::bucket_processor> m_bp;
 
 	long m_read_timeout = 60;
 	long m_write_timeout = 60;
-
-	std::string m_meta_bucket;
-	std::string m_domain;
-
-	std::string m_static_root_dir;
-
-	std::mutex m_auth_lock;
-	std::unordered_map<std::string, nullx::mailbox_t> m_mboxes;
-
-	ribosome::expiration m_expire;
-	ribosome::vector_lock m_vlock;
-
-	std::unique_ptr<nullx::mime> m_mime;
 
 	std::string m_tmp_dir;
 
@@ -283,68 +164,7 @@ private:
 		return true;
 	}
 
-	bool prepare_buckets(const rapidjson::Value &config) {
-		if (!config.HasMember("buckets")) {
-			NLOG_ERROR("\"application.buckets\" field is missed");
-			return false;
-		}
-
-		auto &buckets = config["buckets"];
-
-		std::set<std::string> bnames;
-		for (auto it = buckets.Begin(), end = buckets.End(); it != end; ++it) {
-			if (it->IsString()) {
-				bnames.insert(it->GetString());
-			}
-		}
-
-		if (!config.HasMember("metadata_groups")) {
-			NLOG_ERROR("\"application.metadata_groups\" field is missed");
-			return false;
-		}
-
-		std::vector<int> mgroups;
-		auto &groups_meta_array = config["metadata_groups"];
-		for (auto it = groups_meta_array.Begin(), end = groups_meta_array.End(); it != end; ++it) {
-			if (it->IsInt())
-				mgroups.push_back(it->GetInt());
-		}
-
-		if (!m_bp->init(mgroups, std::vector<std::string>(bnames.begin(), bnames.end())))
-			return false;
-
-		const char *meta_bucket = ebucket::get_string(config, "meta_bucket");
-		if (!meta_bucket) {
-			NLOG_ERROR("\"application.meta_bucket\" field is missed");
-			return false;
-		}
-		m_meta_bucket.assign(meta_bucket);
-
-		return true;
-	}
-
 	bool prepare_server(const rapidjson::Value &config) {
-		const char *domain = ebucket::get_string(config, "domain");
-		if (!domain) {
-			NLOG_ERROR("\"application.domain\" field is missed");
-			return false;
-		}
-		m_domain.assign(domain);
-
-		const char *root = ebucket::get_string(config, "static_root_dir");
-		if (!root) {
-			NLOG_ERROR("\"application.static_root_dir\" field is missed");
-			return false;
-		}
-		m_static_root_dir.assign(root);
-
-		const char *mime_file = ebucket::get_string(config, "mime_file");
-		if (!mime_file) {
-			NLOG_ERROR("\"application.mime_file\" field is missed");
-			return false;
-		}
-		m_mime.reset(new nullx::mime("application/octet-stream", mime_file));
-
 		const char *tmp_dir = ebucket::get_string(config, "tmp_dir");
 		if (!tmp_dir) {
 			NLOG_ERROR("\"application.tmp_dir\" field is missed");
