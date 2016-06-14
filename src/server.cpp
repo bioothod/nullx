@@ -1,14 +1,7 @@
 #include "nullx/asio.hpp"
-#include "nullx/get.hpp"
-#include "nullx/index.hpp"
 #include "nullx/log.hpp"
-#include "nullx/mime.hpp"
 #include "nullx/transcode.hpp"
 #include "nullx/upload.hpp"
-
-#include <ebucket/bucket_processor.hpp>
-#include <ribosome/expiration.hpp>
-#include <ribosome/vector_lock.hpp>
 
 #include <thevoid/rapidjson/stringbuffer.h>
 #include <thevoid/rapidjson/prettywriter.h>
@@ -33,20 +26,12 @@ public:
 		if (!elliptics_init(config))
 			return false;
 
-		on<nullx::on_upload_auth_media<nullx_server>>(
+		on<nullx::on_transcode<nullx_server>>(
 			options::prefix_match("/transcode/"),
 			options::methods("POST", "PUT")
 		);
 
 		return true;
-	}
-
-	std::shared_ptr<ebucket::bucket_processor> bucket_processor() const {
-		return m_bp;
-	}
-
-	std::string meta_bucket() const {
-		return m_meta_bucket;
 	}
 
 	const std::string &tmp_dir() const {
@@ -59,6 +44,10 @@ public:
 		memcpy(msg.data.get(), input_file.data(), input_file.size());
 		m_transcode_ctl->schedule(msg, std::bind(&nullx_server::transcode_completion, this,
 					input_file, completion, std::placeholders::_1));
+	}
+
+	elliptics::session session() {
+		return *m_session;
 	}
 
 private:
@@ -90,13 +79,7 @@ private:
 			return false;
 		}
 
-		m_bp.reset(new ebucket::bucket_processor(m_node));
-
 		if (!prepare_session(config)) {
-			return false;
-		}
-
-		if (!prepare_buckets(config)) {
 			return false;
 		}
 
@@ -165,14 +148,24 @@ private:
 	}
 
 	bool prepare_server(const rapidjson::Value &config) {
-		const char *tmp_dir = ebucket::get_string(config, "tmp_dir");
-		if (!tmp_dir) {
+		if (!config.HasMember("tmp_dir")) {
 			NLOG_ERROR("\"application.tmp_dir\" field is missed");
 			return false;
 		}
-		m_tmp_dir.assign(tmp_dir);
+		auto &td = config["tmp_dir"];
+		if (!td.IsString()) {
+			NLOG_ERROR("\"application.tmp_dir\" must be string");
+			return false;
+		}
+		m_tmp_dir.assign(td.GetString());
 
-		int num_workers = ebucket::get_int64(config, "transcoding_workers", 16);
+		int num_workers = 16;
+		if (config.HasMember("transcoding_workers")) {
+			auto &tw = config["transcoding_workers"];
+			if (tw.IsInt()) {
+				num_workers = tw.GetInt();
+			}
+		}
 		m_transcode_ctl.reset(new nullx::transcode_controller(num_workers));
 		return true;
 	}

@@ -18,16 +18,13 @@ LOCATE_LIBRARY(AVCODEC "libavcodec/avcodec.h" "avcodec" "ffmpeg")
 LOCATE_LIBRARY(AVFORMAT "libavformat/avformat.h" "avformat" "ffmpeg")
 LOCATE_LIBRARY(AVFILTER "libavfilter/avfilter.h" "avfilter" "ffmpeg")
 LOCATE_LIBRARY(AVUTIL "libavutil/error.h" "avutil" "ffmpeg")
-LOCATE_LIBRARY(CRYPTOPP "cryptopp/cryptlib.h" "cryptopp" "crypto++")
-LOCATE_HEADERS(EBUCKET "ebucket/bucket.hpp")
-LOCATE_LIBRARY(MSGPACK "msgpack.hpp" "msgpack")
+LOCATE_LIBRARY(GLOG "glog/logging.h" "glog")
 LOCATE_LIBRARY(SWARM "swarm/http_response.hpp" "swarm")
 LOCATE_LIBRARY(SWRESAMPLE "libswresample/swresample.h" "swresample" "ffmpeg")
 LOCATE_LIBRARY(THEVOID "thevoid/server.hpp" "thevoid")
 
 find_package(Boost COMPONENTS system thread filesystem program_options REQUIRED)
 find_package(Elliptics REQUIRED)
-find_package(Greylock REQUIRED)
 find_package(Nulla REQUIRED)
 find_package(Ribosome REQUIRED)
 
@@ -38,11 +35,8 @@ include_directories(
 	${AVFILTER_INCLUDE_DIRS}
 	${AVUTIL_INCLUDE_DIRS}
 	${Boost_INCLUDE_DIRS}
-	${CRYPTOPP_INCLUDE_DIRS}
-	${EBUCKET_INCLUDE_DIRS}
 	${ELLIPTICS_INCLUDE_DIRS}
-	${GREYLOCK_INCLUDE_DIRS}
-	${MSGPACK_INCLUDE_DIRS}
+	${GLOG_INCLUDE_DIRS}
 	${NULLA_INCLUDE_DIRS}
 	${RIBOSOME_INCLUDE_DIRS}
 	${SWARM_INCLUDE_DIRS}
@@ -56,11 +50,8 @@ link_directories(
 	${AVFILTER_LIBRARY_DIRS}
 	${AVUTIL_LIBRARY_DIRS}
 	${Boost_LIBRARY_DIRS}
-	${CRYPTOPP_LIBRARY_DIRS}
-	${EBUCKET_LIBRARY_DIRS}
 	${ELLIPTICS_LIBRARY_DIRS}
-	${GREYLOCK_LIBRARY_DIRS}
-	${MSGPACK_LIBRARY_DIRS}
+	${GLOG_LIBRARY_DIRS}
 	${NULLA_LIBRARY_DIRS}
 	${SWRESAMPLE_LIBRARY_DIRS}
 	${RIBOSOME_LIBRARY_DIRS}

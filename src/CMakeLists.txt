@@ -5,11 +5,8 @@ target_link_libraries(nullx_server
 	${AVFILTER_LIBRARIES}
 	${AVUTIL_LIBRARIES}
 	${Boost_LIBRARIES}
-	${CRYPTOPP_LIBRARIES}
-	${EBUCKET_LIBRARIES}
 	${ELLIPTICS_LIBRARIES}
-	${GREYLOCK_LIBRARIES}
-	${MSGPACK_LIBRARIES}
+	${GLOG_LIBRARIES}
 	${NULLA_LIBRARIES}
 	${RIBOSOME_LIBRARIES}
 	${SWARM_LIBRARIES}
@@ -17,14 +14,14 @@ target_link_libraries(nullx_server
 	${THEVOID_LIBRARIES}
 )
 
-add_executable(nullx_transcoder transcode_controller.cpp transcode.cpp transcode_example.cpp)
+add_executable(nullx_transcoder transcode.cpp transcode_example.cpp)
 target_link_libraries(nullx_transcoder
 	${AVCODEC_LIBRARIES}
 	${AVFORMAT_LIBRARIES}
 	${AVFILTER_LIBRARIES}
 	${AVUTIL_LIBRARIES}
 	${Boost_LIBRARIES}
-	${RIBOSOME_LIBRARIES}
+	${GLOG_LIBRARIES}
 	${SWRESAMPLE_LIBRARIES}
 )
 
