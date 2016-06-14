@@ -1,6 +1,6 @@
 Summary:	Elliptics streaming (Nulla project) web frontend server
 Name:		nullx
-Version:	0.2.0
+Version:	0.3.0
 Release:	1%{?dist}
 
 License:	Apache 2.0
@@ -46,6 +46,11 @@ rm -rf %{buildroot}
 #%{_libdir}/*.so.*
 
 %changelog
+* Tue Jun 14 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.3.0
+- package: depend on ribosome
+- Added transcoding support
+- server: added temporary dir config option
+
 * Thu May 26 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.2.0
 - Implemented all get/upload/static index/list and login/signup methods
 
