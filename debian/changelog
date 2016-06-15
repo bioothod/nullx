@@ -1,3 +1,10 @@
+nullx (1.0.0) unstable; urgency=low
+
+  * Nullx is a transcoding server now.
+  * tests: added python application which tests transcoding and upload
+
+ -- Evgeniy Polyakov <zbr@ioremap.net>  Wed, 15 Jun 2016 16:16:28 +0400
+
 nullx (0.3.0) unstable; urgency=low
 
   * package: depend on ribosome

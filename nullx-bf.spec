@@ -1,6 +1,6 @@
 Summary:	Elliptics streaming (Nulla project) web frontend server
 Name:		nullx
-Version:	0.3.0
+Version:	1.0.0
 Release:	1%{?dist}
 
 License:	Apache 2.0
@@ -46,6 +46,10 @@ rm -rf %{buildroot}
 #%{_libdir}/*.so.*
 
 %changelog
+* Wed Jun 15 2016 Evgeniy Polyakov <zbr@ioremap.net> - 1.0.0
+- Nullx is a transcoding server now.
+- tests: added python application which tests transcoding and upload
+
 * Tue Jun 14 2016 Evgeniy Polyakov <zbr@ioremap.net> - 0.3.0
 - package: depend on ribosome
 - Added transcoding support
