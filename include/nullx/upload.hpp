@@ -179,9 +179,8 @@ public:
 			m_fd = -1;
 
 			schedule_transcoding();
-		} else {
-			this->try_next_chunk();
 		}
+		this->try_next_chunk();
 	}
 
 	virtual void on_error(const boost::system::error_code &error) {
@@ -435,7 +434,12 @@ protected:
 					m_output_file.c_str(), m_file->size());
 
 		boost::asio::const_buffer buffer(m_file->data(), m_file->size());
-		this->send_data(std::move(buffer), std::bind(&on_transcode_base::close, this->shared_from_this(), std::placeholders::_1));
+
+		thevoid::http_response reply;
+		reply.set_code(swarm::http_response::ok);
+		reply.headers().set_content_length(m_file->size());
+		this->send_headers(std::move(reply), std::move(buffer),
+				std::bind(&on_transcode_base::close, this->shared_from_this(), std::placeholders::_1));
 	}
 
 	void transconding_completed(const std::string &output_file, const elliptics::error_info &error) {
