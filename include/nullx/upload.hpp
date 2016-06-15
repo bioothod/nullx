@@ -179,8 +179,9 @@ public:
 			m_fd = -1;
 
 			schedule_transcoding();
+		} else {
+			this->try_next_chunk();
 		}
-		this->try_next_chunk();
 	}
 
 	virtual void on_error(const boost::system::error_code &error) {
@@ -305,8 +306,9 @@ protected:
 	void store_metadata_elliptics(const std::string &meta) {
 		elliptics::key id(*m_elliptics_metadata_key);
 		elliptics::session session(this->server()->session());
-		session.transform(id);
 		session.set_groups(m_metadata_groups);
+		session.set_namespace(m_metadata_bucket);
+		session.transform(id);
 		session.write_data(id, meta, 0).connect(std::bind(&on_transcode_base::elliptics_send_reply,
 					this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
 	}
@@ -328,8 +330,10 @@ protected:
 		elliptics::key id(*m_elliptics_key);
 
 		elliptics::session session(this->server()->session());
-		session.transform(id);
+		session.set_namespace(m_bucket);
 		session.set_groups(m_groups);
+
+		session.transform(id);
 
 		int err;
 
