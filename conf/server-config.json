@@ -1,12 +1,12 @@
 {
     "endpoints": [
-        "0.0.0.0:8080"
+        "0.0.0.0:8090"
     ],
     "backlog": 512,
     "threads": 10,
     "buffer_size": 65536,
 	"logger": {
-        "level": "notice",
+        "level": "info",
         "frontends": [
             {
                 "formatter": {
