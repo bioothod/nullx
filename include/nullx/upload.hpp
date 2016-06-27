@@ -120,11 +120,11 @@ public:
 				}
 			}
 
-			auto mgroups = headers.get("X-Ell-Metadata-Groups");
+			auto mgroups = headers.get("X-Ell-Meta-Groups");
 			if (mgroups) {
 				m_metadata_groups = elliptics::parse_groups(mgroups->c_str());
 
-				auto mid = headers.get("X-Ell-Metadata-ID");
+				auto mid = headers.get("X-Ell-Meta-ID");
 				if (mid) {
 					dnet_raw_id id;
 
@@ -133,11 +133,11 @@ public:
 						m_elliptics_metadata_key.reset(new elliptics::key(id));
 					}
 				}
-				auto mkey = headers.get("X-Ell-Metadata-Key");
+				auto mkey = headers.get("X-Ell-Meta-Key");
 				if (mkey) {
 					m_elliptics_metadata_key.reset(new elliptics::key(mkey->c_str()));
 
-					auto mbucket = headers.get("X-Ell-Metadata-Bucket");
+					auto mbucket = headers.get("X-Ell-Meta-Bucket");
 					if (mbucket) {
 						m_metadata_bucket = *mbucket;
 					}
@@ -209,32 +209,25 @@ protected:
 	std::unique_ptr<elliptics::key> m_elliptics_metadata_key;
 	std::string m_metadata_bucket;
 	std::vector<int> m_metadata_groups;
+	size_t m_metadata_size = 0;
 
 	std::unique_ptr<ribosome::mapped_file> m_file;
 
 	void generate_upload_reply(nullx::JsonValue &value, const elliptics::sync_write_result &result) {
-		upload_completion::fill_upload_reply(result, value, value.GetAllocator());
-
-		rapidjson::Value sgroups_val(rapidjson::kArrayType);
-		rapidjson::Value egroups_val(rapidjson::kArrayType);
-
 		std::ostringstream sgroups, egroups;
 		for (auto it = result.begin(); it != result.end(); ++it) {
 			const elliptics::write_result_entry &entry = *it;
 
 			int group_id = entry.command()->id.group_id;
-			rapidjson::Value group_val(group_id);
 
 			if (entry.error()) {
 				if (egroups.tellp() != 0)
 					egroups << ":";
 				egroups << group_id;
-				egroups_val.PushBack(group_val, value.GetAllocator());
 			} else {
 				if (sgroups.tellp() != 0)
 					sgroups << ":";
 				sgroups << group_id;
-				sgroups_val.PushBack(group_val, value.GetAllocator());
 			}
 		}
 
@@ -244,23 +237,43 @@ protected:
 				sgroups.str().c_str(), egroups.str().c_str(),
 				m_timer.elapsed());
 
-		if (m_elliptics_key->by_id()) {
-			std::string id = m_elliptics_key->to_string();
+		if (m_elliptics_key) {
+			if (m_elliptics_key->by_id()) {
+				std::string id = m_elliptics_key->to_string();
 
-			rapidjson::Value id_val(id.c_str(), id.size(), value.GetAllocator());
-			value.AddMember("id", id_val, value.GetAllocator());
-		} else {
-			rapidjson::Value bucket_val(m_bucket.c_str(), m_bucket.size(), value.GetAllocator());
-			value.AddMember("bucket", bucket_val, value.GetAllocator());
+				rapidjson::Value id_val(id.c_str(), id.size(), value.GetAllocator());
+				value.AddMember("id", id_val, value.GetAllocator());
+			} else {
+				rapidjson::Value bucket_val(m_bucket.c_str(), m_bucket.size(), value.GetAllocator());
+				value.AddMember("bucket", bucket_val, value.GetAllocator());
 
-			std::string key = m_elliptics_key->to_string();
+				std::string key = m_elliptics_key->to_string();
 
-			rapidjson::Value key_val(key.c_str(), key.size(), value.GetAllocator());
-			value.AddMember("key", key_val, value.GetAllocator());
+				rapidjson::Value key_val(key.c_str(), key.size(), value.GetAllocator());
+				value.AddMember("key", key_val, value.GetAllocator());
+
+				value.AddMember("size", m_output_size, value.GetAllocator());
+			}
 		}
 
-		value.AddMember("success-groups", sgroups_val, value.GetAllocator());
-		value.AddMember("error-groups", egroups_val, value.GetAllocator());
+		if (m_elliptics_metadata_key) {
+			if (m_elliptics_metadata_key->by_id()) {
+				std::string id = m_elliptics_metadata_key->to_string();
+
+				rapidjson::Value id_val(id.c_str(), id.size(), value.GetAllocator());
+				value.AddMember("meta_id", id_val, value.GetAllocator());
+			} else {
+				rapidjson::Value bucket_val(m_metadata_bucket.c_str(), m_metadata_bucket.size(), value.GetAllocator());
+				value.AddMember("meta_bucket", bucket_val, value.GetAllocator());
+
+				std::string key = m_elliptics_metadata_key->to_string();
+
+				rapidjson::Value key_val(key.c_str(), key.size(), value.GetAllocator());
+				value.AddMember("meta_key", key_val, value.GetAllocator());
+
+				value.AddMember("meta_size", m_metadata_size, value.GetAllocator());
+			}
+		}
 	}
 
 	std::string print_key(bool meta) {
@@ -401,6 +414,7 @@ protected:
 				reader.parse();
 
 				meta = reader.pack();
+				m_metadata_size = meta.size();
 				const nulla::media &media = reader.get_media();
 
 				// this should not happen, since we transcode exactly into format supported by ISO reader
