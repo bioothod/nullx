@@ -390,6 +390,9 @@ protected:
 		ctl.io.timestamp.tnsec = 0;
 		ctl.id = id.id();
 
+		// assume that specified timeout is for 1Mb file
+		session.set_timeout(session.get_timeout() * ((float)(m_output_size) / 1000000.0 + 1.0));
+
 		session.write_data(ctl).connect(std::bind(&on_transcode_base::file_uploaded,
 				this->shared_from_this(), fd, std::placeholders::_1, std::placeholders::_2));
 

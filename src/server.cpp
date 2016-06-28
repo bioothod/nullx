@@ -54,7 +54,6 @@ private:
 	std::shared_ptr<elliptics::node> m_node;
 	std::unique_ptr<elliptics::session> m_session;
 
-	long m_read_timeout = 60;
 	long m_write_timeout = 60;
 
 	std::string m_tmp_dir;
@@ -132,17 +131,14 @@ private:
 	}
 
 	bool prepare_session(const rapidjson::Value &config) {
-		if (config.HasMember("read-timeout")) {
-			auto &tm = config["read-timeout"];
-			if (tm.IsInt())
-				m_read_timeout = tm.GetInt();
-		}
-
+		// this is an estimated timeout to write 1Mb of data, all write timeouts will be recalculated based on this logic
 		if (config.HasMember("write-timeout")) {
 			auto &tm = config["write-timeout"];
 			if (tm.IsInt())
 				m_write_timeout = tm.GetInt();
 		}
+
+		m_session->set_timeout(m_write_timeout);
 
 		return true;
 	}
