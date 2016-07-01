@@ -1,4 +1,5 @@
 #include "nullx/asio.hpp"
+#include "nullx/download.hpp"
 #include "nullx/log.hpp"
 #include "nullx/transcode.hpp"
 #include "nullx/upload.hpp"
@@ -29,6 +30,10 @@ public:
 		on<nullx::on_transcode<nullx_server>>(
 			options::prefix_match("/transcode/"),
 			options::methods("POST", "PUT")
+		);
+		on<nullx::on_download_json<nullx_server>>(
+			options::prefix_match("/meta_json/"),
+			options::methods("GET")
 		);
 
 		return true;
