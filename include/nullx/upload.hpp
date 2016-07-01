@@ -196,6 +196,8 @@ protected:
 	size_t m_input_size = 0;
 	size_t m_output_size = 0;
 
+	struct dnet_time m_timestamp;
+
 	ribosome::timer m_timer;
 
 	// if there are X-Ell-Groups and X-Ell-Key (+ optionally X-Ell-Bucket) or X-Ell-ID headers,
@@ -254,48 +256,46 @@ protected:
 
 				value.AddMember("size", m_output_size, value.GetAllocator());
 			}
+
+			rapidjson::Value tobj(rapidjson::kObjectType);
+			tobj.AddMember("tsec", m_timestamp.tsec, value.GetAllocator());
+			tobj.AddMember("tnsec", m_timestamp.tnsec, value.GetAllocator());
+			value.AddMember("timestamp", tobj, value.GetAllocator());
 		}
 
 		if (m_elliptics_metadata_key) {
-			if (m_elliptics_metadata_key->by_id()) {
-				std::string id = m_elliptics_metadata_key->to_string();
+			value.AddMember("meta_size", m_metadata_size, value.GetAllocator());
 
-				rapidjson::Value id_val(id.c_str(), id.size(), value.GetAllocator());
-				value.AddMember("meta_id", id_val, value.GetAllocator());
+			std::string key = m_elliptics_metadata_key->to_string();
+			rapidjson::Value key_val(key.c_str(), key.size(), value.GetAllocator());
+
+			if (m_elliptics_metadata_key->by_id()) {
+				value.AddMember("meta_id", key_val, value.GetAllocator());
 			} else {
 				rapidjson::Value bucket_val(m_metadata_bucket.c_str(), m_metadata_bucket.size(), value.GetAllocator());
 				value.AddMember("meta_bucket", bucket_val, value.GetAllocator());
 
-				std::string key = m_elliptics_metadata_key->to_string();
-
-				rapidjson::Value key_val(key.c_str(), key.size(), value.GetAllocator());
 				value.AddMember("meta_key", key_val, value.GetAllocator());
-
-				value.AddMember("meta_size", m_metadata_size, value.GetAllocator());
 			}
 		}
 	}
 
-	std::string print_key(bool meta) {
-		if (meta) {
-			if (m_elliptics_metadata_key->by_id()) {
-				return m_elliptics_metadata_key->to_string();
-			} else {
-				return m_metadata_bucket + "/" + m_elliptics_metadata_key->to_string();
-			}
-		} else {
-			if (m_elliptics_key->by_id()) {
-				return m_elliptics_key->to_string();
-			} else {
-				return m_bucket + "/" + m_elliptics_key->to_string();
-			}
+	std::string print_key(const std::unique_ptr<elliptics::key> &key) {
+		if (key) {
+			return key->to_string();
 		}
+
+		return "-";
 	}
 
 	void elliptics_send_reply(const elliptics::sync_write_result &result, const elliptics::error_info &error) {
 		if (error) {
-			NLOG_ERROR("transcode: elliptics_send_reply: file: %s, key: %s, metadata_key: %s, error: %s [%d]",
-					m_output_file.c_str(), print_key(false).c_str(), print_key(true).c_str(),
+			NLOG_ERROR("transcode: elliptics_send_reply: file: %s, bucket: %s, key: %s, "
+					"metadata: bucket: %s, key: %s, "
+					"error: %s [%d]",
+					m_output_file.c_str(),
+					m_bucket.c_str(), print_key(m_elliptics_key).c_str(),
+					m_metadata_bucket.c_str(), print_key(m_elliptics_metadata_key).c_str(),
 					error.message().c_str(), error.code());
 
 			this->send_reply(swarm::http_response::service_unavailable);
@@ -317,6 +317,13 @@ protected:
 	}
 
 	void store_metadata_elliptics(const std::string &meta) {
+		NLOG_INFO("transcode: store_metadata_elliptics_raw: file: %s, bucket: %s, key: %s, "
+				"metadata: bucket: %s, key: %s, storing media metadata size: %ld",
+				m_output_file.c_str(),
+				m_bucket.c_str(), print_key(m_elliptics_key).c_str(),
+				m_metadata_bucket.c_str(), print_key(m_elliptics_metadata_key).c_str(),
+				meta.size());
+
 		elliptics::key id(*m_elliptics_metadata_key);
 		elliptics::session session(this->server()->session());
 		session.set_groups(m_metadata_groups);
@@ -390,6 +397,8 @@ protected:
 		ctl.io.timestamp.tnsec = 0;
 		ctl.id = id.id();
 
+		m_timestamp = ctl.io.timestamp;
+
 		// assume that specified timeout is for 1Mb file
 		session.set_timeout(session.get_timeout() * ((float)(m_output_size) / 1000000.0 + 1.0));
 
@@ -418,7 +427,7 @@ protected:
 
 				meta = reader.pack();
 				m_metadata_size = meta.size();
-				const nulla::media &media = reader.get_media();
+				const auto &media = reader.get_media();
 
 				// this should not happen, since we transcode exactly into format supported by ISO reader
 				if (meta.empty()) {
