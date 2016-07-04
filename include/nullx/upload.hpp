@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nullx/asio.hpp"
+#include "nullx/download.hpp"
 #include "nullx/jsonvalue.hpp"
 #include "nullx/log.hpp"
 #include "nullx/url.hpp"
@@ -213,6 +214,8 @@ protected:
 	std::vector<int> m_metadata_groups;
 	size_t m_metadata_size = 0;
 
+	nulla::media m_media;
+
 	std::unique_ptr<ribosome::mapped_file> m_file;
 
 	void generate_upload_reply(nullx::JsonValue &value, const elliptics::sync_write_result &result) {
@@ -261,6 +264,10 @@ protected:
 			tobj.AddMember("tsec", m_timestamp.tsec, value.GetAllocator());
 			tobj.AddMember("tnsec", m_timestamp.tnsec, value.GetAllocator());
 			value.AddMember("timestamp", tobj, value.GetAllocator());
+
+			rapidjson::Value media_obj(rapidjson::kObjectType);
+			dump::export_meta_info_json(m_media, media_obj, value.GetAllocator());
+			value.AddMember("media", media_obj, value.GetAllocator());
 		}
 
 		if (m_elliptics_metadata_key) {
@@ -427,14 +434,14 @@ protected:
 
 				meta = reader.pack();
 				m_metadata_size = meta.size();
-				const auto &media = reader.get_media();
+				m_media = reader.get_media();
 
 				// this should not happen, since we transcode exactly into format supported by ISO reader
 				if (meta.empty()) {
 					throw std::runtime_error("empty metadata file");
 				}
 
-				dump_meta_info(m_output_file, meta, media);
+				dump_meta_info(m_output_file, meta, m_media);
 
 				store_metadata_elliptics(meta);
 			} catch (const std::exception &e) {
