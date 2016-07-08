@@ -1,6 +1,6 @@
 Summary:	Elliptics streaming (Nulla project) web frontend server
 Name:		nullx
-Version:	1.0.0
+Version:	1.1.0
 Release:	1%{?dist}
 
 License:	Apache 2.0
@@ -46,6 +46,16 @@ rm -rf %{buildroot}
 #%{_libdir}/*.so.*
 
 %changelog
+* Sat Jul 09 2016 Evgeniy Polyakov <zbr@ioremap.net> - 1.1.0
+- transcode: return json-packed nulla::media info after transcoding has been completed
+- download: move nulla::media json packer into separate namespace, return 404 when there is no file
+- download: added /meta_json/ GET handler which downloads packed nulla::media and returns unpacked json data
+- upload: added key timestamp into reply json, refactor logs
+- url: added key path sanity checks
+- session: set write timeout and assume that 'write-timeout' config option is an estimated timeout to write 1Mb of data,
+- 	all writes will recalculate timeouts based on this logic
+- upload: use Meta prefix for metadata key/bucket, do not encode and send elliptics data in reply, added meta data and size into reply json
+
 * Wed Jun 15 2016 Evgeniy Polyakov <zbr@ioremap.net> - 1.0.0
 - Nullx is a transcoding server now.
 - tests: added python application which tests transcoding and upload

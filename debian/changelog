@@ -1,3 +1,16 @@
+nullx (1.1.0) unstable; urgency=low
+
+  * transcode: return json-packed nulla::media info after transcoding has been completed
+  * download: move nulla::media json packer into separate namespace, return 404 when there is no file
+  * download: added /meta_json/ GET handler which downloads packed nulla::media and returns unpacked json data
+  * upload: added key timestamp into reply json, refactor logs
+  * url: added key path sanity checks
+  * session: set write timeout and assume that 'write-timeout' config option is an estimated timeout to write 1Mb of data,
+  * 	all writes will recalculate timeouts based on this logic
+  * upload: use Meta prefix for metadata key/bucket, do not encode and send elliptics data in reply, added meta data and size into reply json
+
+ -- Evgeniy Polyakov <zbr@ioremap.net>  Sat, 09 Jul 2016 00:23:27 +0400
+
 nullx (1.0.0) unstable; urgency=low
 
   * Nullx is a transcoding server now.
