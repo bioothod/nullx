@@ -335,6 +335,8 @@ protected:
 		elliptics::session session(this->server()->session());
 		session.set_groups(m_metadata_groups);
 		session.set_namespace(m_metadata_bucket);
+		session.set_trace_id(this->request().request_id());
+		session.set_trace_bit(this->request().trace_bit());
 		session.transform(id);
 		session.write_data(id, meta, 0).connect(std::bind(&on_transcode_base::elliptics_send_reply,
 					this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
@@ -359,6 +361,8 @@ protected:
 		elliptics::session session(this->server()->session());
 		session.set_namespace(m_bucket);
 		session.set_groups(m_groups);
+		session.set_trace_id(this->request().request_id());
+		session.set_trace_bit(this->request().trace_bit());
 
 		session.transform(id);
 

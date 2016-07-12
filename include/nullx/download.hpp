@@ -87,6 +87,8 @@ public:
 		elliptics::session session(this->server()->session());
 		session.set_groups(groups);
 		session.set_namespace(bucket);
+		session.set_trace_id(this->request().request_id());
+		session.set_trace_bit(this->request().trace_bit());
 		session.transform(ekey);
 
 		session.read_data(ekey, 0, 0).connect(std::bind(&on_download_json_base::unpack,
