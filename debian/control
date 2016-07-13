@@ -13,7 +13,6 @@ Build-Depends:
  elliptics-dev,
  elliptics-client,
  nulla-dev,
- libcrypto++-dev,
  libmsgpack-dev,
  libswarm3-dev,
  libthevoid3-dev,
